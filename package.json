@@ -1,0 +1,32 @@
+{
+  "name": "stakefit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StakeFit, daily distance heats settled on Hedera",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "deploy:contracts": "bash scripts/deploy-contracts.sh",
+    "deploy:subgraph": "bash scripts/deploy-subgraph.sh",
+    "simulate:cre": "bash scripts/simulate-cre.sh",
+    "setup:hedera": "bash scripts/setup-hedera.sh",
+    "dev:orchestrator": "pnpm --filter @stakefit/orchestrator dev",
+    "dev:web": "pnpm --filter @stakefit/web dev",
+    "pay-and-scan": "bash scripts/pay-and-scan.sh",
+    "pay-and-enter": "pnpm --filter @stakefit/orchestrator pay-and-enter",
+    "probe:health": "pnpm --filter @stakefit/health probe",
+    "test:stakefit": "pnpm --filter @stakefit/health test && pnpm --filter @stakefit/cre test && pnpm --filter @stakefit/orchestrator test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "turbo": "^2.1.3",
+    "typescript": "^5.6.2"
+  }
+}

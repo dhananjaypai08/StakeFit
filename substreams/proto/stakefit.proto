@@ -1,0 +1,14 @@
+syntax = "proto3";
+package stakefit.v1;
+
+message HeatEvents {
+  repeated HeatEvent events = 1;
+}
+
+message HeatEvent {
+  string kind = 1;
+  string market_id = 2;
+  string user = 3;
+  uint64 time_ms = 4;
+  bool hidden = 5;
+}

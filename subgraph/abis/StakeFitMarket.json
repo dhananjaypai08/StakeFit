@@ -1,0 +1,55 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "marketId", "type": "uint256" },
+      { "indexed": false, "internalType": "bytes32", "name": "distanceId", "type": "bytes32" },
+      { "indexed": false, "internalType": "uint64", "name": "startTs", "type": "uint64" },
+      { "indexed": false, "internalType": "uint64", "name": "endTs", "type": "uint64" },
+      { "indexed": false, "internalType": "uint32", "name": "graceSec", "type": "uint32" },
+      { "indexed": false, "internalType": "bool", "name": "hidden", "type": "bool" },
+      { "indexed": false, "internalType": "uint16", "name": "houseBps", "type": "uint16" },
+      { "indexed": false, "internalType": "uint64", "name": "entryTinybars", "type": "uint64" }
+    ],
+    "name": "MarketCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "marketId", "type": "uint256" },
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": false, "internalType": "bytes32", "name": "paymentRef", "type": "bytes32" },
+      { "indexed": false, "internalType": "address", "name": "hederaHint", "type": "address" }
+    ],
+    "name": "Entered",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "marketId", "type": "uint256" },
+      { "indexed": true, "internalType": "address", "name": "user", "type": "address" },
+      { "indexed": false, "internalType": "bool", "name": "hasResult", "type": "bool" },
+      { "indexed": false, "internalType": "uint64", "name": "timeMs", "type": "uint64" },
+      { "indexed": false, "internalType": "bytes32", "name": "exerciseId", "type": "bytes32" }
+    ],
+    "name": "ResultSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "marketId", "type": "uint256" },
+      { "indexed": false, "internalType": "address", "name": "first", "type": "address" },
+      { "indexed": false, "internalType": "address", "name": "second", "type": "address" },
+      { "indexed": false, "internalType": "address", "name": "third", "type": "address" },
+      { "indexed": false, "internalType": "uint64", "name": "firstTimeMs", "type": "uint64" },
+      { "indexed": false, "internalType": "uint64", "name": "secondTimeMs", "type": "uint64" },
+      { "indexed": false, "internalType": "uint64", "name": "thirdTimeMs", "type": "uint64" },
+      { "indexed": false, "internalType": "uint256", "name": "vrfSeed", "type": "uint256" }
+    ],
+    "name": "Resolved",
+    "type": "event"
+  }
+]

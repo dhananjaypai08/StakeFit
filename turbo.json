@@ -1,0 +1,45 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalEnv": [
+    "NODE_ENV",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
+    "GRAPH_GATEWAY_API_KEY",
+    "STAKEFIT_SUBGRAPH_QUERY_URL",
+    "SEPOLIA_RPC_URL",
+    "DEPLOYER_PRIVATE_KEY",
+    "OBSERVATION_LOG_ADDRESS",
+    "AUDIT_REGISTRY_ADDRESS",
+    "ENS_REGISTRAR_ADDRESS",
+    "ENS_PARENT_NAME",
+    "CRE_TARGET_CHAIN",
+    "HEDERA_NETWORK",
+    "HEDERA_ACCOUNT_ID",
+    "HEDERA_PRIVATE_KEY",
+    "BLOCKY402_FACILITATOR_URL",
+    "HTS_CERTIFICATE_TOKEN_ID",
+    "HCS_AUDIT_TOPIC_ID",
+    "PINATA_JWT",
+    "SCAN_SKIP_PAYMENT",
+    "NEXT_PUBLIC_ORCHESTRATOR_URL",
+    "NEXT_PUBLIC_ORCHESTRATOR_WS_URL"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
+    "clean": {
+      "cache": false
+    }
+  }
+}

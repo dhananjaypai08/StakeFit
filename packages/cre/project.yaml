@@ -1,0 +1,10 @@
+# CRE project settings. Targets must match audit-firewall/workflow.yaml.
+staging-settings:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia
+      url: ${SEPOLIA_RPC_URL}
+
+production-settings:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia
+      url: ${SEPOLIA_RPC_URL}

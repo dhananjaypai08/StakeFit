@@ -1,0 +1,35 @@
+specVersion: 1.0.0
+description: StakeFit heats, entries, hidden-or-live results, and resolutions on Sepolia.
+schema:
+  file: ./schema.graphql
+dataSources:
+  - kind: ethereum
+    name: StakeFitMarket
+    network: sepolia
+    source:
+      address: "0x0000000000000000000000000000000000000001"
+      abi: StakeFitMarket
+      startBlock: 1
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Market
+        - Entry
+        - Result
+        - Resolution
+        - Payout
+      abis:
+        - name: StakeFitMarket
+          file: ./abis/StakeFitMarket.json
+      eventHandlers:
+        - event: MarketCreated(indexed uint256,bytes32,uint64,uint64,uint32,bool,uint16,uint64)
+          handler: handleMarketCreated
+        - event: Entered(indexed uint256,indexed address,bytes32,address)
+          handler: handleEntered
+        - event: ResultSubmitted(indexed uint256,indexed address,bool,uint64,bytes32)
+          handler: handleResultSubmitted
+        - event: Resolved(indexed uint256,address,address,address,uint64,uint64,uint64,uint256)
+          handler: handleResolved
+      file: ./src/mappings.ts

@@ -1,0 +1,15 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "bytes32", "name": "scanId", "type": "bytes32" },
+      { "indexed": false, "internalType": "string", "name": "target", "type": "string" },
+      { "indexed": false, "internalType": "uint8", "name": "verdict", "type": "uint8" },
+      { "indexed": false, "internalType": "uint16", "name": "score", "type": "uint16" },
+      { "indexed": false, "internalType": "string", "name": "reportCid", "type": "string" },
+      { "indexed": false, "internalType": "uint256", "name": "finishedAt", "type": "uint256" }
+    ],
+    "name": "AuditCompleted",
+    "type": "event"
+  }
+]

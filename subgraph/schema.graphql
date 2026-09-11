@@ -1,0 +1,58 @@
+type Market @entity(immutable: false) {
+  id: ID!
+  distanceId: Bytes!
+  startTs: BigInt!
+  endTs: BigInt!
+  graceSec: BigInt!
+  hidden: Boolean!
+  houseBps: Int!
+  entryTinybars: BigInt!
+  resolved: Boolean!
+  vrfSeed: BigInt!
+  first: Bytes
+  second: Bytes
+  third: Bytes
+  firstTimeMs: BigInt
+  createdAt: BigInt!
+  entries: [Entry!]! @derivedFrom(field: "market")
+  results: [Result!]! @derivedFrom(field: "market")
+  resolution: Resolution
+}
+
+type Entry @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  user: Bytes!
+  paymentRef: Bytes!
+  hederaHint: Bytes!
+}
+
+type Result @entity(immutable: false) {
+  id: ID!
+  market: Market!
+  user: Bytes!
+  hasResult: Boolean!
+  timeMs: BigInt
+  exerciseId: Bytes!
+}
+
+type Resolution @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  first: Bytes
+  second: Bytes
+  third: Bytes
+  firstTimeMs: BigInt
+  secondTimeMs: BigInt
+  thirdTimeMs: BigInt
+  vrfSeed: BigInt!
+  resolvedAt: BigInt!
+}
+
+type Payout @entity(immutable: true) {
+  id: ID!
+  market: Market!
+  user: Bytes!
+  rank: Int!
+  timeMs: BigInt!
+}

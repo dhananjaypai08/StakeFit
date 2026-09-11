@@ -1,0 +1,16 @@
+{
+  "schedule": "0 */6 * * * *",
+  "auditRegistryAddress": "0xA0dE1081BF83f89f602906e58Ac82542A9754f75",
+  "targetChain": "ethereum-testnet-sepolia",
+  "findingsUrl": "",
+  "vrfSeedUrl": "",
+  "fuzzSeed": 42,
+  "findings": [
+    {
+      "category": "Sensitive data exposure",
+      "severity": "high",
+      "confidence": 0.8,
+      "title": "API key echoed in a client-visible error"
+    }
+  ]
+}

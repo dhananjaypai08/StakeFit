@@ -1,0 +1,17 @@
+[
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "bytes32", "name": "scanId", "type": "bytes32" },
+      { "indexed": false, "internalType": "string", "name": "agent", "type": "string" },
+      { "indexed": false, "internalType": "string", "name": "target", "type": "string" },
+      { "indexed": false, "internalType": "string", "name": "findingType", "type": "string" },
+      { "indexed": false, "internalType": "uint8", "name": "severity", "type": "uint8" },
+      { "indexed": false, "internalType": "bytes32", "name": "digest", "type": "bytes32" },
+      { "indexed": false, "internalType": "string", "name": "note", "type": "string" },
+      { "indexed": false, "internalType": "uint256", "name": "createdAt", "type": "uint256" }
+    ],
+    "name": "ObservationRecorded",
+    "type": "event"
+  }
+]

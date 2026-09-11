@@ -1,0 +1,29 @@
+specVersion: v0.1.0
+package:
+  name: stakefit_heats
+  version: v0.1.0
+  url: https://github.com/dhananjaypai/ethglobal2026
+
+imports:
+  ethereum: https://spkg.io/streamingfast/ethereum-common-v0.3.2.spkg
+
+protobuf:
+  files:
+    - stakefit.proto
+  importPaths:
+    - ./proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/stakefit_heats.wasm
+
+modules:
+  - name: map_heats
+    kind: map
+    inputs:
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:stakefit.v1.HeatEvents
+
+network: sepolia

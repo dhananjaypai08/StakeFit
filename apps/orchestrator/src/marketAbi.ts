@@ -1,0 +1,15 @@
+export const STAKEFIT_MARKET_ABI = [
+  "function createMarket(bytes32 distanceId, uint64 startTs, uint64 endTs, uint32 graceSec, bool hidden, uint16 houseBps, uint64 entryTinybars) returns (uint256)",
+  "function recordEntry(uint256 marketId, address user, address hederaHint, bytes32 paymentRef)",
+  "function submitResult(uint256 marketId, address user, uint64 timeMs, bytes32 exerciseId)",
+  "function requestResolve(uint256 marketId) returns (uint256)",
+  "function fulfillResolveSeed(uint256 marketId, uint256 seed)",
+  "function resolve(uint256 marketId, address first, address second, address third, uint64 firstTimeMs, uint64 secondTimeMs, uint64 thirdTimeMs)",
+  "function adminResolve(uint256 marketId, address first, address second, address third, uint64 firstTimeMs, uint64 secondTimeMs, uint64 thirdTimeMs)",
+  "function getResolution(uint256 marketId) view returns (bool resolved, address first, address second, address third, uint64 firstTimeMs, uint256 vrfSeed)",
+  "event MarketCreated(uint256 indexed marketId, bytes32 distanceId, uint64 startTs, uint64 endTs, uint32 graceSec, bool hidden, uint16 houseBps, uint64 entryTinybars)",
+  "event Entered(uint256 indexed marketId, address indexed user, bytes32 paymentRef, address hederaHint)",
+  "event ResultSubmitted(uint256 indexed marketId, address indexed user, bool hasResult, uint64 timeMs, bytes32 exerciseId)",
+  "event ResolveRequested(uint256 indexed marketId, uint256 requestId)",
+  "event Resolved(uint256 indexed marketId, address first, address second, address third, uint64 firstTimeMs, uint64 secondTimeMs, uint64 thirdTimeMs, uint256 vrfSeed)",
+] as const;

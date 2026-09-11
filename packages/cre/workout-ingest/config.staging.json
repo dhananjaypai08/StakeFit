@@ -1,0 +1,7 @@
+{
+  "schedule": "0 * * * * *",
+  "workoutUrl": "http://localhost:8787/cre/workout/demo",
+  "distanceMillimeters": 50000,
+  "startMs": 0,
+  "endMs": 4102444800000
+}
