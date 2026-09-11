@@ -1,4 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { ethers } from "ethers";
 import {
   authorizationUrl,
@@ -59,8 +61,13 @@ export class StakeFitService {
   readonly certificates = new Map<string, Certificate>();
   readonly oauthStates = new Map<string, number>();
   private localMarketSeq = 1;
+  private chainTail: Promise<void> = Promise.resolve();
+  private lastAutoSync = new Map<string, number>();
+  private autoSyncing = false;
 
-  constructor(private readonly config: OrchestratorConfig) {}
+  constructor(private readonly config: OrchestratorConfig) {
+    this.restore();
+  }
 
   catalog() {
     return DISTANCE_CATALOG;
@@ -101,6 +108,10 @@ export class StakeFitService {
       healthUserId: profile.id,
     };
     this.users.set(user.id, user);
+    this.persist();
+    void this.syncExercises(user.id).catch((err) => {
+      console.warn("login sync skipped:", err instanceof Error ? err.message : err);
+    });
     return user;
   }
 
@@ -147,6 +158,7 @@ export class StakeFitService {
       user.lastSyncTime = new Date().toISOString();
       user.deviceVersion = "Fitbit Air (mock)";
       this.ingestOpenMarkets(user);
+      this.persist();
       return { sessions: user.exercises, lastSyncTime: user.lastSyncTime, devices: ["Fitbit Air (mock)"] };
     }
     const token = await this.freshAccessToken(user);
@@ -169,6 +181,7 @@ export class StakeFitService {
       session.lastSyncTime = user.lastSyncTime;
     }
     this.ingestOpenMarkets(user);
+    this.persist();
     return { sessions, lastSyncTime: user.lastSyncTime, devices: devices.map((d) => d.deviceVersion ?? d.name) };
   }
 
@@ -182,19 +195,35 @@ export class StakeFitService {
         const catalog = catalogById(market.distanceId);
         if (!catalog) continue;
         const inWindow = session.startMs >= market.startMs && session.startMs <= market.endMs;
-        if (inWindow && session.distanceMillimeters >= catalog.millimeters) {
-          qualifiedMarkets.push({ marketId: market.id, label: market.label, distanceId: market.distanceId });
-        }
         const submitted = (this.results.get(market.id) ?? []).find((row) => row.exerciseId === session.id);
+        const entered = (this.entries.get(market.id) ?? []).some((row) => row.userId === userId);
+        if (inWindow && session.distanceMillimeters >= catalog.millimeters) {
+          qualifiedMarkets.push({
+            marketId: market.id,
+            label: market.label,
+            distanceId: market.distanceId,
+            entered,
+            submitted: Boolean(submitted),
+          });
+        }
         if (submitted) resultMarketId = market.id;
+      }
+      let statusNote = "Has a measured distance";
+      if (session.distanceMillimeters <= 0) {
+        statusNote = "No distance from Fitbit";
+      } else if (this.markets.size === 0) {
+        statusNote = "No heat is open yet";
+      } else if (qualifiedMarkets.length === 0) {
+        statusNote = "Started outside every heat window";
+      } else {
+        statusNote = `Qualifies for ${qualifiedMarkets.map((row) => row.label).join(", ")}`;
       }
       return {
         ...session,
         qualifiedMarkets,
         resultMarketId,
-        certificateSerial: [...this.certificates.entries()].find(([, cert]) => cert.marketId === resultMarketId)?.[0] === userId
-          ? this.certificates.get(`${userId}:${resultMarketId}`)?.serial
-          : this.certificates.get(`${userId}:${resultMarketId}`)?.serial,
+        certificateSerial: this.certificates.get(`${userId}:${resultMarketId}`)?.serial,
+        statusNote,
       };
     });
   }
@@ -261,7 +290,8 @@ export class StakeFitService {
     this.markets.set(id, this.refreshStatus(market));
     this.entries.set(id, []);
     this.results.set(id, []);
-    await this.chainCreate(market);
+    this.persist();
+    this.enqueueChain(() => this.chainCreate(market));
     return market;
   }
 
@@ -279,8 +309,44 @@ export class StakeFitService {
     this.entries.set(marketId, list);
     market.entryCount = list.length;
     market.potTinybars += market.entryTinybars;
-    void this.chainRecordEntry(market, userId, hederaAccount, paymentRef);
+    this.persist();
+    this.enqueueChain(() => this.chainRecordEntry(market, userId, hederaAccount, paymentRef));
+    if (user) this.ingestOpenMarkets(user);
+    void this.syncExercises(userId).catch((err) => {
+      console.warn("enter sync skipped:", err instanceof Error ? err.message : err);
+    });
     return entry;
+  }
+
+  startBackgroundSync(intervalMs = 60_000): void {
+    void this.syncEnteredUsers();
+    setInterval(() => void this.syncEnteredUsers(), intervalMs);
+  }
+
+  async syncEnteredUsers(): Promise<void> {
+    if (this.autoSyncing) return;
+    this.autoSyncing = true;
+    try {
+      const userIds = new Set<string>();
+      for (const market of this.markets.values()) {
+        this.refreshStatus(market);
+        if (!["scheduled", "open", "grace"].includes(market.status)) continue;
+        for (const entry of this.entries.get(market.id) ?? []) userIds.add(entry.userId);
+      }
+      const now = Date.now();
+      for (const userId of userIds) {
+        const last = this.lastAutoSync.get(userId) ?? 0;
+        if (now - last < 45_000) continue;
+        this.lastAutoSync.set(userId, now);
+        try {
+          await this.syncExercises(userId);
+        } catch (err) {
+          console.warn("auto-sync skipped:", userId, err instanceof Error ? err.message : err);
+        }
+      }
+    } finally {
+      this.autoSyncing = false;
+    }
   }
 
   markPaid(marketId: string, userId: string, hederaAccount: string): MarketEntry {
@@ -306,7 +372,8 @@ export class StakeFitService {
         const next = list.filter((row) => row.userId !== user.id);
         next.push({ userId: user.id, timeMs: scored.timeMs, exerciseId: scored.exerciseId });
         this.results.set(market.id, next);
-        void this.chainSubmitResult(market, user.id, scored.timeMs, scored.exerciseId);
+        this.persist();
+        this.enqueueChain(() => this.chainSubmitResult(market, user.id, scored.timeMs, scored.exerciseId));
       }
     }
   }
@@ -315,16 +382,6 @@ export class StakeFitService {
     const market = this.getMarket(marketId);
     if (!market) throw new Error("market not found");
     if (market.status === "resolved") return market;
-    for (const entry of this.entries.get(marketId) ?? []) {
-      const user = this.users.get(entry.userId);
-      if (user?.tokens) {
-        try {
-          await this.syncExercises(user.id);
-        } catch {
-          // Keep last cached sessions; resolve still runs.
-        }
-      }
-    }
     const seed = opts?.seed ?? this.vrfSeed(market);
     market.vrfSeed = seed.toString();
     const ranked = rankWithTies(
@@ -342,9 +399,10 @@ export class StakeFitService {
     }));
     market.status = "resolved";
     market.resolvedAt = Date.now();
-    await this.chainResolve(market, opts?.admin ?? false);
-    await this.payWinners(market);
-    await this.logResolve(market);
+    this.persist();
+    this.enqueueChain(() => this.chainResolve(market, opts?.admin ?? false));
+    void this.payWinners(market);
+    void this.logResolve(market);
     return market;
   }
 
@@ -388,6 +446,62 @@ export class StakeFitService {
     if (this.config.vrfSubscriptionId && market.vrfSeed) return BigInt(market.vrfSeed);
     const hash = createHash("sha256").update(`${market.id}:${Date.now()}`).digest("hex");
     return BigInt(`0x${hash.slice(0, 16)}`);
+  }
+
+  private statePath(): string {
+    return resolve(process.cwd(), "../../.data/stakefit.json");
+  }
+
+  private persist(): void {
+    try {
+      const path = this.statePath();
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        JSON.stringify({
+          seq: this.localMarketSeq,
+          markets: [...this.markets.values()],
+          entries: Object.fromEntries(this.entries),
+          results: Object.fromEntries(this.results),
+          users: [...this.users.values()],
+        }),
+      );
+    } catch (err) {
+      console.warn("Could not persist heats:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  private restore(): void {
+    try {
+      const raw = JSON.parse(readFileSync(this.statePath(), "utf8")) as {
+        seq?: number;
+        markets?: Market[];
+        entries?: Record<string, MarketEntry[]>;
+        results?: Record<string, StoredResult[]>;
+        users?: StakeUser[];
+      };
+      this.localMarketSeq = raw.seq ?? 1;
+      for (const market of raw.markets ?? []) this.markets.set(market.id, market);
+      for (const [id, rows] of Object.entries(raw.entries ?? {})) this.entries.set(id, rows);
+      for (const [id, rows] of Object.entries(raw.results ?? {})) this.results.set(id, rows);
+      for (const user of raw.users ?? []) {
+        this.users.set(user.id, { ...user, exercises: user.exercises ?? [] });
+      }
+    } catch {
+      // First boot, or the file is missing.
+    }
+  }
+
+  private enqueueChain(work: () => Promise<void>): Promise<void> {
+    const run = this.chainTail.then(work, work).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/already known|nonce too low|replacement transaction underpriced|could not coalesce/i.test(message)) {
+        return;
+      }
+      console.warn("Sepolia write skipped:", message);
+    });
+    this.chainTail = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   private signer() {

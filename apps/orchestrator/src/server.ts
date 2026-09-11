@@ -24,6 +24,7 @@ export function createApp() {
   });
 
   mountStakeFit(app, config, stakeFit);
+  stakeFit.startBackgroundSync();
 
   // Start a scan. Gated by x402 when a distinct SCAN_PAYTO_ACCOUNT is set.
   app.post("/scan", async (req, res) => {

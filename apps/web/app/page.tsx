@@ -1,221 +1,95 @@
-"use client";
-
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { api } from "../lib/api";
-import { useAuth } from "../lib/auth";
+import { PHOTOS } from "../lib/photos";
 
-interface MarketCard {
-  id: string;
-  label: string;
-  distanceId: string;
-  status: string;
-  hidden: boolean;
-  entryCount: number;
-  potTinybars: number;
-  entryTinybars: number;
-  startMs: number;
-  endMs: number;
-}
-
-interface Distance {
-  id: string;
-  label: string;
-}
-
-interface Workout {
-  id: string;
-  exerciseType: string;
-  startMs: number;
-  distanceMillimeters: number;
-  activeDurationMs: number;
-  qualifiedMarkets: Array<{ marketId: string; label: string }>;
-}
+const STEPS = [
+  {
+    n: "01",
+    title: "Sign in with Google",
+    body: "Connects Google Health. Fitbit must sync to your phone first. We do not read the watch live.",
+  },
+  {
+    n: "02",
+    title: "Pay to enter",
+    body: "Pick an open race and pay from HashPack. Until you pay, a qualifying walk cannot place.",
+  },
+  {
+    n: "03",
+    title: "Sync, then get paid",
+    body: "Lowest Fitbit time in the window that covered the distance. We keep 10%. Top three split the rest 50 / 30 / 20.",
+  },
+];
 
 export default function HomePage() {
-  const { user, refresh } = useAuth();
-  const [markets, setMarkets] = useState<MarketCard[]>([]);
-  const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [distances, setDistances] = useState<Distance[]>([]);
-  const [distanceId, setDistanceId] = useState("50m");
-  const [error, setError] = useState("");
-  const [creating, setCreating] = useState(false);
-
-  async function load() {
-    const [list, catalog] = await Promise.all([
-      api<{ markets: MarketCard[] }>("/markets"),
-      api<{ distances: Distance[] }>("/catalog"),
-    ]);
-    setMarkets(list.markets);
-    setDistances(catalog.distances);
-    if (user) {
-      const hist = await api<{ exercises: Workout[] }>("/me/exercises");
-      setWorkouts(hist.exercises);
-    }
-  }
-
-  useEffect(() => {
-    if (!user) return;
-    void load().catch((err) => setError(err.message));
-  }, [user]);
-
-  async function createHeat() {
-    setCreating(true);
-    setError("");
-    try {
-      await api("/markets", {
-        method: "POST",
-        body: JSON.stringify({
-          distanceId,
-          startMs: Date.now(),
-          endMs: Date.now() + 60 * 60_000,
-          graceSec: 900,
-          hidden: true,
-          houseBps: 1000,
-          entryTinybars: 10_000,
-        }),
-      });
-      await load();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function resolve(id: string) {
-    setError("");
-    try {
-      await api(`/markets/${id}/resolve`, { method: "POST" });
-      await load();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  if (!user) return null;
-
-  const nextStep = !user.lastSyncTime
-    ? "Walk 50m, open the Fitbit or Google Health app, then hit Sync Fitbit up top."
-    : markets.length === 0
-      ? user.admin
-        ? "Create a 50m heat, then open it and enter with HashPack."
-        : "Ask an admin to open a heat, then enter with HashPack."
-      : "Open a heat, pay to enter, then Sync Fitbit after the phone uploads.";
-
   return (
-    <main className="stack">
-      <section className="banner">
-        <div>
-          <h2>What to do</h2>
-          <p>{nextStep}</p>
-          <p className="meta">
-            {user.deviceVersion ?? "No device yet"}
-            {user.lastSyncTime ? ` · last sync ${new Date(user.lastSyncTime).toLocaleString()}` : ""}
-          </p>
-        </div>
-      </section>
-
-      {error ? <p className="callout">{error}</p> : null}
-
-      <section className="card">
-        <div className="row spread">
-          <h2>Heats</h2>
-          {user.admin ? (
-            <div className="row">
-              <select value={distanceId} onChange={(e) => setDistanceId(e.target.value)}>
-                {distances.map((row) => (
-                  <option key={row.id} value={row.id}>
-                    {row.label}
-                  </option>
-                ))}
-              </select>
-              <button className="btn primary" type="button" disabled={creating} onClick={() => void createHeat()}>
-                {creating ? "Creating…" : "Create heat"}
-              </button>
+    <div className="w-full">
+      <section className="relative w-full overflow-hidden">
+        <div className="relative h-[70vh] min-h-[22rem] w-full max-h-[36rem]">
+          <img
+            src={PHOTOS.hero}
+            alt="Athlete in starting position on a running track"
+            className="absolute inset-0 h-full w-full object-cover object-top"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/45 to-black/10" />
+          <div className="page-x relative flex h-full flex-col justify-end pb-10 pt-24">
+            <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight text-white md:text-6xl">
+              Race a set distance.
+              <br />
+              Fastest time wins the pot.
+            </h1>
+            <p className="mt-4 text-base text-white/90">
+              Pay to enter. We time the walk or run you already logged on Fitbit.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Link className="action action-primary h-11 px-5" href="/app">
+                See races
+              </Link>
+              <a className="action action-quiet h-11 px-5" href="#how">
+                How it works
+              </a>
             </div>
-          ) : null}
+          </div>
         </div>
-        {markets.length === 0 ? <p className="muted">No heats yet.</p> : null}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Heat</th>
-              <th>Status</th>
-              <th>Entries</th>
-              <th>Pot</th>
-              {user.admin ? <th></th> : null}
-            </tr>
-          </thead>
-          <tbody>
-            {markets.map((market) => (
-              <tr key={market.id}>
-                <td>
-                  <Link href={`/markets/${market.id}`}>{market.label}</Link>
-                </td>
-                <td>{market.status}</td>
-                <td>{market.entryCount}</td>
-                <td>{market.potTinybars} tinybar</td>
-                {user.admin ? (
-                  <td>
-                    {market.status !== "resolved" ? (
-                      <button className="btn" type="button" onClick={() => void resolve(market.id)}>
-                        Resolve
-                      </button>
-                    ) : (
-                      "resolved"
-                    )}
-                  </td>
-                ) : null}
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </section>
 
-      <section className="card">
-        <div className="row spread">
-          <h2>Your workouts</h2>
-          <button
-            className="btn"
-            type="button"
-            onClick={() =>
-              void api("/me/sync", { method: "POST" })
-                .then(() => refresh())
-                .then(() => load())
-                .catch((err) => setError(err.message))
-            }
-          >
-            Sync again
-          </button>
+      <section id="how" className="page-x w-full py-12 md:py-14">
+        <p className="text-xs uppercase tracking-[0.16em] text-white/70">How it works</p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">
+          Connect Fitbit. Pay. We use the time you already recorded.
+        </h2>
+        <ol className="mt-8 grid w-full gap-4 md:grid-cols-3">
+          {STEPS.map((step) => (
+            <li key={step.n} className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
+              <p className="text-xs text-white/60">{step.n}</p>
+              <h3 className="mt-1.5 text-base font-medium text-white">{step.title}</h3>
+              <p className="mt-1.5 text-sm leading-6 text-white/85">{step.body}</p>
+            </li>
+          ))}
+        </ol>
+
+        <div className="mt-10 grid w-full items-stretch overflow-hidden rounded-xl border border-white/[0.08] bg-ink-900 md:grid-cols-2">
+          <img
+            src={PHOTOS.fitbit}
+            alt="Athlete checking a Fitbit"
+            className="h-56 w-full object-cover object-[center_42%] md:h-full"
+          />
+          <div className="flex flex-col justify-center px-5 py-6 sm:px-8">
+            <p className="text-xs uppercase tracking-[0.16em] text-white/70">What counts</p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-white md:text-2xl">
+              Start in the race window. Cover the distance.
+            </h2>
+            <p className="mt-3 text-sm leading-6 text-white/85">
+              Bike or gym with no GPS distance cannot place. Times stay hidden until payout.
+            </p>
+          </div>
         </div>
-        {workouts.length === 0 ? (
-          <p className="muted">Nothing from Google Health yet. Sync the phone first, then Sync Fitbit.</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>Type</th>
-                <th>Distance</th>
-                <th>Time</th>
-                <th>Heat</th>
-              </tr>
-            </thead>
-            <tbody>
-              {workouts.map((row) => (
-                <tr key={row.id}>
-                  <td>{new Date(row.startMs).toLocaleString()}</td>
-                  <td>{row.exerciseType}</td>
-                  <td>{(row.distanceMillimeters / 1000).toFixed(1)} m</td>
-                  <td>{(row.activeDurationMs / 1000).toFixed(1)}s</td>
-                  <td>{row.qualifiedMarkets.map((m) => m.label).join(", ") || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
       </section>
-    </main>
+
+      <footer className="page-x w-full border-t border-white/[0.06] py-6 text-xs text-white/50">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p>StakeFit</p>
+          <p>Fitbit via Google Health API.</p>
+        </div>
+      </footer>
+    </div>
   );
 }

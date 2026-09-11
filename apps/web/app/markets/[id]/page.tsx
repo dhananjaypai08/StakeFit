@@ -1,11 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Action } from "../../../components/Action";
+import { Breadcrumbs } from "../../../components/Breadcrumbs";
+import { PageHero } from "../../../components/PageHero";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { formatTinybars } from "../../../lib/format";
+import { PHOTOS } from "../../../lib/photos";
 import { connectWallet, encodeXPaymentHeader, signScanPayment, type InvoiceRequirements } from "../../../lib/hederaWallet";
+import { useViewMode } from "../../../lib/viewMode";
 
 interface View {
   id: string;
@@ -14,12 +19,16 @@ interface View {
   hidden: boolean;
   entryTinybars: number;
   potTinybars: number;
+  startMs: number;
+  endMs: number;
   results: Array<{ userId: string; timeMs?: number; hidden?: boolean }>;
   winners?: Array<{ userId: string; timeMs: number; rank: number; hederaAccount: string }>;
 }
 
 export default function MarketPage() {
   const { user, refresh } = useAuth();
+  const { view: appView } = useViewMode();
+  const isAdmin = appView === "admin";
   const params = useParams<{ id: string }>();
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState("");
@@ -77,6 +86,19 @@ export default function MarketPage() {
     }
   }
 
+  async function resolveHeat() {
+    setBusy("resolve");
+    setError("");
+    try {
+      await api(`/markets/${params.id}/resolve`, { method: "POST" });
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function mint() {
     setBusy("mint");
     setError("");
@@ -92,52 +114,85 @@ export default function MarketPage() {
   }
 
   if (!user) return null;
-  if (!view) return <main className="card">{error || "Loading…"}</main>;
+  if (!view) return <p className="text-zinc-500">{error || "Loading…"}</p>;
 
   return (
-    <main className="stack">
-      <p className="muted">
-        <Link href="/">All heats</Link>
-      </p>
-      <section className="card">
-        <h2>{view.label}</h2>
-        <p className="muted">
-          {view.status} · {view.hidden ? "times hidden until resolve" : "live board"} · entry {view.entryTinybars} tinybar
-          · pot {view.potTinybars} tinybar
+    <main>
+      <PageHero src={PHOTOS.track} alt="Athletes on a running track" eyebrow="Race" title={view.label}>
+        <p className="mt-4 max-w-xl text-base leading-7 text-white/90">
+          Pay {formatTinybars(view.entryTinybars)} to enter. We use your fastest Fitbit time that started in this window
+          and covered the distance. Pot {formatTinybars(view.potTinybars)}.
+          {view.hidden ? " Other people cannot see times until payout." : ""}
         </p>
-        <p className="muted">1. Enter with HashPack · 2. Walk, sync the phone, then Sync workout · 3. Mint run ID</p>
-        <div className="row">
-          <button className="btn primary" type="button" disabled={Boolean(busy)} onClick={() => void enter()}>
-            {busy === "enter" ? "Paying…" : "1. Enter with HashPack"}
-          </button>
-          <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void syncWorkout()}>
-            {busy === "sync" ? "Syncing…" : "2. Sync workout"}
-          </button>
-          <button className="btn" type="button" disabled={Boolean(busy)} onClick={() => void mint()}>
-            {busy === "mint" ? "Minting…" : "3. Mint run ID"}
-          </button>
+        <p className="mt-2 text-sm text-white/80">
+          {new Date(view.startMs).toLocaleString()} to {new Date(view.endMs).toLocaleString()} · {view.status}
+        </p>
+        <div className="mt-6">
+          <Breadcrumbs items={[{ href: "/", label: "Home" }, { href: "/app", label: "Races" }, { label: view.label }]} />
         </div>
-        {error ? <p className="callout">{error}</p> : null}
-        <h3>Board</h3>
-        {view.results.length === 0 ? <p className="muted">No times yet.</p> : null}
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Runner</th>
-              <th>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            {view.results.map((row) => (
-              <tr key={row.userId}>
-                <td>{row.userId === user.id ? "You" : row.userId.slice(0, 10)}</td>
-                <td>{row.hidden ? "hidden" : row.timeMs != null ? `${(row.timeMs / 1000).toFixed(1)}s` : "—"}</td>
+      </PageHero>
+
+      <section className="page-x w-full py-10">
+        {isAdmin ? (
+          <Action disabled={Boolean(busy) || view.status === "resolved"} onClick={() => void resolveHeat()}>
+            {view.status === "resolved" ? "Paid out" : busy === "resolve" ? "Paying out…" : "Pay out this race"}
+          </Action>
+        ) : (
+          <ol className="grid gap-4 sm:grid-cols-3">
+            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
+              <p className="text-xs text-white/60">01</p>
+              <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void enter()}>
+                <h2 className="text-base font-medium text-white">{busy === "enter" ? "Paying…" : "Pay to enter"}</h2>
+                <p className="mt-1.5 text-sm leading-6 text-white/85">Small HBAR entry from HashPack. Required to place.</p>
+              </button>
+            </li>
+            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
+              <p className="text-xs text-white/60">02</p>
+              <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void syncWorkout()}>
+                <h2 className="text-base font-medium text-white">{busy === "sync" ? "Syncing…" : "Sync Fitbit"}</h2>
+                <p className="mt-1.5 text-sm leading-6 text-white/85">Pull walks and runs after the phone has synced.</p>
+              </button>
+            </li>
+            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
+              <p className="text-xs text-white/60">03</p>
+              <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void mint()}>
+                <h2 className="text-base font-medium text-white">{busy === "mint" ? "Minting…" : "Save a certificate"}</h2>
+                <p className="mt-1.5 text-sm leading-6 text-white/85">Optional soulbound run ID on Hedera.</p>
+              </button>
+            </li>
+          </ol>
+        )}
+        {error ? <p className="mt-6 text-sm text-red-200">{error}</p> : null}
+      </section>
+
+      <section className="page-x w-full pb-14">
+        <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Board</p>
+        {view.results.length === 0 ? (
+          <p className="py-8 text-sm text-zinc-500">No times yet. Pay to enter, then sync a session from this window.</p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs text-zinc-500">
+              <tr>
+                <th className="px-5 py-2.5 font-medium">Runner</th>
+                <th className="px-5 py-2.5 font-medium">Time</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-white/[0.06]">
+              {view.results.map((row) => (
+                <tr key={row.userId}>
+                  <td className="px-5 py-3">{row.userId === user.id ? "You" : row.userId.slice(0, 10)}</td>
+                  <td className="px-5 py-3 tabular-nums">
+                    {row.hidden ? "hidden" : row.timeMs != null ? `${(row.timeMs / 1000).toFixed(1)}s` : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         {view.winners?.length ? (
-          <p>Top 3: {view.winners.map((w) => `#${w.rank} ${(w.timeMs / 1000).toFixed(1)}s`).join(" · ")}</p>
+          <p className="border-t border-white/[0.06] px-5 py-3 text-sm text-zinc-400">
+            Top 3: {view.winners.map((w) => `#${w.rank} ${(w.timeMs / 1000).toFixed(1)}s`).join(" · ")}
+          </p>
         ) : null}
       </section>
     </main>

@@ -95,6 +95,12 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
   app.get("/me/exercises", (req, res) => {
     const user = requireUser(req, res);
     if (!user) return;
+    const stale = !user.lastSyncTime || Date.now() - Date.parse(user.lastSyncTime) > 45_000;
+    if (stale) {
+      void service.syncExercises(user.id).catch((err) => {
+        console.warn("page sync skipped:", err instanceof Error ? err.message : err);
+      });
+    }
     res.json({ exercises: service.history(user.id), lastSyncTime: user.lastSyncTime, deviceVersion: user.deviceVersion });
   });
 
@@ -141,8 +147,8 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
 
   app.post("/markets", (req, res) => {
     const user = userFrom(req);
-    if (!service.isAdmin(user) && req.header("x-admin-secret") !== config.adminSecret) {
-      res.status(403).json({ error: "admin only" });
+    if (!user && req.header("x-admin-secret") !== config.adminSecret) {
+      res.status(401).json({ error: "sign in first" });
       return;
     }
     const distanceId = String(req.body?.distanceId ?? "") as DistanceId;

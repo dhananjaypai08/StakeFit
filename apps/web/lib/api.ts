@@ -6,9 +6,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
   const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
+  let json: Record<string, unknown> = {};
+  if (text) {
+    try {
+      json = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      json = { error: text.slice(0, 180) };
+    }
+  }
   if (!res.ok) {
-    const error = new Error(json.error ?? text ?? res.statusText) as Error & { status: number; body: unknown };
+    const message = typeof json.error === "string" ? json.error : text || res.statusText;
+    const error = new Error(message) as Error & { status: number; body: unknown };
     error.status = res.status;
     error.body = json;
     throw error;

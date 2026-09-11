@@ -12,7 +12,7 @@ export interface DistanceCatalogEntry {
 
 /** Admin cannot invent distances. 50m exists so a short outdoor effort can demo. */
 export const DISTANCE_CATALOG: readonly DistanceCatalogEntry[] = [
-  { id: "50m", label: "50 metres (demo)", meters: 50, millimeters: 50_000, demo: true },
+  { id: "50m", label: "50 metres", meters: 50, millimeters: 50_000, demo: true },
   { id: "200m", label: "200 metres", meters: 200, millimeters: 200_000, demo: false },
   { id: "5k", label: "5 kilometres", meters: 5_000, millimeters: 5_000_000, demo: false },
   { id: "10k", label: "10 kilometres", meters: 10_000, millimeters: 10_000_000, demo: false },
@@ -60,6 +60,9 @@ export interface ExerciseSession {
   activeDurationMs: number;
   distanceMillimeters: number;
   steps?: number;
+  caloriesKcal?: number;
+  heartRateBpm?: number;
+  elevationGainMillimeters?: number;
   averagePaceSecondsPerMeter?: number;
   hasGps?: boolean;
   deviceVersion?: string;
@@ -74,9 +77,16 @@ export interface QualifyingResult {
 }
 
 export interface HistoryRow extends ExerciseSession {
-  qualifiedMarkets: Array<{ marketId: string; label: string; distanceId: DistanceId }>;
+  qualifiedMarkets: Array<{
+    marketId: string;
+    label: string;
+    distanceId: DistanceId;
+    entered?: boolean;
+    submitted?: boolean;
+  }>;
   resultMarketId?: string;
   certificateSerial?: string;
+  statusNote: string;
 }
 
 export interface PayoutSplit {

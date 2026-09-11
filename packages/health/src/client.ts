@@ -18,6 +18,24 @@ export interface HealthClient {
   }>;
   getExercise(id: string): Promise<ExerciseSession | undefined>;
   listPairedDevices(): Promise<PairedDevice[]>;
+  listDistanceIntervals(): Promise<Array<{ startMs: number; endMs: number; millimeters: number }>>;
+  listActiveEnergy(): Promise<Array<{ startMs: number; endMs: number; kcal: number }>>;
+}
+
+interface MetricsSummary {
+  caloriesKcal?: number;
+  distanceMillimeters?: number | string;
+  steps?: string | number;
+  averageSpeedMillimetersPerSecond?: number;
+  averagePaceSecondsPerMeter?: number;
+  averageHeartRateBeatsPerMinute?: string | number;
+  elevationGainMillimeters?: number;
+  activeZoneMinutes?: string | number;
+  mobilityMetrics?: { avgStrideLengthMillimeters?: string | number };
+}
+
+interface SplitSummary {
+  metricsSummary?: MetricsSummary;
 }
 
 interface DataPoint {
@@ -28,13 +46,13 @@ interface DataPoint {
     exerciseType?: string;
     displayName?: string;
     activeDuration?: string;
-    metricsSummary?: {
-      distanceMillimeters?: number;
-      steps?: string | number;
-      averagePaceSecondsPerMeter?: number;
-    };
+    splits?: SplitSummary[];
+    splitSummaries?: SplitSummary[];
+    metricsSummary?: MetricsSummary;
     exerciseMetadata?: { hasGps?: boolean };
   };
+  distance?: { interval?: { startTime?: string; endTime?: string }; millimeters?: string | number };
+  activeEnergyBurned?: { interval?: { startTime?: string; endTime?: string }; kcal?: number };
 }
 
 /**
@@ -79,6 +97,31 @@ export function createHealthClient(accessToken: string, fetchImpl: typeof fetch 
       const body = await healthGet<{ pairedDevices?: PairedDevice[] }>("/users/me/pairedDevices");
       return body.pairedDevices ?? [];
     },
+    async listDistanceIntervals() {
+      const body = await healthGet<{ dataPoints?: DataPoint[] }>("/users/me/dataTypes/distance/dataPoints", {
+        pageSize: "25",
+      });
+      return (body.dataPoints ?? [])
+        .map((point) => ({
+          startMs: parseRfc3339Ms(point.distance?.interval?.startTime),
+          endMs: parseRfc3339Ms(point.distance?.interval?.endTime),
+          millimeters: num(point.distance?.millimeters),
+        }))
+        .filter((row) => row.millimeters > 0);
+    },
+    async listActiveEnergy() {
+      const body = await healthGet<{ dataPoints?: DataPoint[] }>(
+        "/users/me/dataTypes/active-energy-burned/dataPoints",
+        { pageSize: "25" },
+      );
+      return (body.dataPoints ?? [])
+        .map((point) => ({
+          startMs: parseRfc3339Ms(point.activeEnergyBurned?.interval?.startTime),
+          endMs: parseRfc3339Ms(point.activeEnergyBurned?.interval?.endTime),
+          kcal: num(point.activeEnergyBurned?.kcal),
+        }))
+        .filter((row) => row.kcal > 0);
+    },
   };
 }
 
@@ -95,6 +138,24 @@ export async function listAllExercises(
     if (!batch.nextPageToken) break;
     pageToken = batch.nextPageToken;
   }
+  const [distances, energy] = await Promise.all([
+    client.listDistanceIntervals().catch(() => []),
+    client.listActiveEnergy().catch(() => []),
+  ]);
+  for (const session of sessions) {
+    if (session.distanceMillimeters <= 0) {
+      session.distanceMillimeters = overlapSum(
+        distances,
+        session.startMs,
+        session.endMs,
+        (row) => row.millimeters,
+      );
+    }
+    if (!session.caloriesKcal) {
+      const kcal = overlapSum(energy, session.startMs, session.endMs, (row) => row.kcal);
+      if (kcal) session.caloriesKcal = Math.round(kcal);
+    }
+  }
   return sessions.sort((a, b) => b.startMs - a.startMs);
 }
 
@@ -105,21 +166,71 @@ function civilFilter(startCivil?: string, endCivil?: string): string | undefined
   return parts.length ? parts.join(" AND ") : undefined;
 }
 
+function overlapSum<T extends { startMs: number; endMs: number }>(
+  rows: T[],
+  startMs: number,
+  endMs: number,
+  value: (row: T) => number,
+): number {
+  let total = 0;
+  for (const row of rows) {
+    if (row.endMs < startMs || row.startMs > endMs) continue;
+    total += value(row);
+  }
+  return total;
+}
+
 export function toSession(point: DataPoint): ExerciseSession {
   const exercise = point.exercise ?? {};
+  const summary = exercise.metricsSummary ?? {};
   const startMs = parseRfc3339Ms(exercise.interval?.startTime);
   const endMs = parseRfc3339Ms(exercise.interval?.endTime);
+  const activeDurationMs = parseDurationMs(exercise.activeDuration, Math.max(0, endMs - startMs));
+  const splits = [...(exercise.splitSummaries ?? []), ...(exercise.splits ?? [])];
   const id = point.name?.split("/").pop() ?? point.name ?? `${startMs}`;
   return {
     id,
-    displayName: exercise.displayName ?? exercise.exerciseType ?? "Workout",
+    displayName: prettyActivityName(exercise.displayName, exercise.exerciseType),
     exerciseType: exercise.exerciseType ?? "UNKNOWN",
     startMs,
     endMs,
-    activeDurationMs: parseDurationMs(exercise.activeDuration, Math.max(0, endMs - startMs)),
-    distanceMillimeters: Number(exercise.metricsSummary?.distanceMillimeters ?? 0),
-    steps: exercise.metricsSummary?.steps !== undefined ? Number(exercise.metricsSummary.steps) : undefined,
-    averagePaceSecondsPerMeter: exercise.metricsSummary?.averagePaceSecondsPerMeter,
+    activeDurationMs,
+    distanceMillimeters: resolveDistanceMm(summary, splits),
+    steps: summary.steps !== undefined ? num(summary.steps) : undefined,
+    caloriesKcal: summary.caloriesKcal ? num(summary.caloriesKcal) : undefined,
+    heartRateBpm: summary.averageHeartRateBeatsPerMinute
+      ? num(summary.averageHeartRateBeatsPerMinute)
+      : undefined,
+    elevationGainMillimeters: summary.elevationGainMillimeters
+      ? num(summary.elevationGainMillimeters)
+      : undefined,
+    averagePaceSecondsPerMeter: summary.averagePaceSecondsPerMeter,
     hasGps: exercise.exerciseMetadata?.hasGps,
   };
+}
+
+export function resolveDistanceMm(summary: MetricsSummary, splits: SplitSummary[]): number {
+  const direct = num(summary.distanceMillimeters);
+  if (direct > 0) return direct;
+  const fromSplits = splits.reduce((sum, split) => sum + num(split.metricsSummary?.distanceMillimeters), 0);
+  if (fromSplits > 0) return fromSplits;
+  return 0;
+}
+
+function prettyActivityName(displayName?: string, exerciseType?: string): string {
+  const source = displayName?.trim() && !/^(UNKNOWN|OTHER)$/i.test(displayName.trim())
+    ? displayName.trim()
+    : exerciseType || "Workout";
+  const spaced = source.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!spaced) return "Workout";
+  if (!/[a-z]/.test(spaced)) {
+    return spaced.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+  return spaced;
+}
+
+function num(value: string | number | undefined): number {
+  if (value === undefined || value === "") return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }

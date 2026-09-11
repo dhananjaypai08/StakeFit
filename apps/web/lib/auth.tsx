@@ -41,6 +41,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    void api("/me/sync", { method: "POST" })
+      .then(() => {
+        if (!cancelled) return refresh();
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, refresh]);
+
   return <AuthCtx.Provider value={{ user, loading, refresh }}>{children}</AuthCtx.Provider>;
 }
 

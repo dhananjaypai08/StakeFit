@@ -58,7 +58,7 @@ async function getConnector(): Promise<WalletConnector> {
       const connector = new DAppConnector(
         {
           name: "StakeFit",
-          description: "Pay-per-heat distance markets",
+          description: "Pay-per-race distance markets",
           url: window.location.origin,
           icons: [`${window.location.origin}/favicon.ico`],
         },

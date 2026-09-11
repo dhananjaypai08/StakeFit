@@ -68,8 +68,36 @@ test("toSession maps the documented exercise data point", () => {
     },
   });
   assert.equal(mapped.id, "morning-trail-run-123456");
+  assert.equal(mapped.displayName, "Morning Trail Run");
   assert.equal(mapped.distanceMillimeters, 5_000_000);
   assert.equal(mapped.activeDurationMs, 1_800_000);
+});
+
+test("toSession turns TREADMILL_WALK into a readable name", () => {
+  const mapped = toSession({
+    name: "users/me/dataTypes/exercise/dataPoints/tm-1",
+    exercise: {
+      interval: { startTime: "2026-08-23T19:45:12Z", endTime: "2026-08-23T20:00:18Z" },
+      exerciseType: "TREADMILL_WALK",
+      activeDuration: "906s",
+      metricsSummary: { distanceMillimeters: 530_000 },
+    },
+  });
+  assert.equal(mapped.displayName, "Treadmill Walk");
+});
+
+test("toSession keeps distance empty when Fitbit sent no millimeters", () => {
+  const mapped = toSession({
+    name: "users/me/dataTypes/exercise/dataPoints/walk-no-mm",
+    exercise: {
+      interval: { startTime: "2026-09-07T20:00:00Z", endTime: "2026-09-07T20:20:00Z" },
+      exerciseType: "WALKING",
+      activeDuration: "1200s",
+      metricsSummary: { steps: "2000", caloriesKcal: 140 },
+    },
+  });
+  assert.equal(mapped.distanceMillimeters, 0);
+  assert.equal(mapped.caloriesKcal, 140);
 });
 
 test("splitPot is 50/30/20 after the house cut; leftover ranks go to the house", () => {

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Roboto } from "next/font/google";
 import { Suspense } from "react";
 import "./globals.css";
 import { AuthProvider } from "../lib/auth";
+import { ViewModeProvider } from "../lib/viewMode";
 import { Shell } from "./shell";
 
 const inter = Inter({
@@ -10,21 +11,28 @@ const inter = Inter({
   display: "swap",
 });
 
+const roboto = Roboto({
+  subsets: ["latin"],
+  weight: "500",
+  display: "swap",
+  variable: "--font-roboto",
+});
+
 export const metadata: Metadata = {
   title: "StakeFit",
-  description: "Daily distance heats settled on Hedera",
+  description: "Race a set distance. Fitbit time from Google Health. HBAR entry on Hedera.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" className={roboto.variable}>
+      <body className={`${inter.className} antialiased`}>
         <AuthProvider>
-          <div className="wrap">
-            <Suspense fallback={<main className="gate muted">Loading…</main>}>
+          <ViewModeProvider>
+            <Suspense fallback={<div className="grid min-h-screen place-items-center text-zinc-500">Loading…</div>}>
               <Shell>{children}</Shell>
             </Suspense>
-          </div>
+          </ViewModeProvider>
         </AuthProvider>
       </body>
     </html>
