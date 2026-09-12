@@ -42,6 +42,13 @@ if [[ ! -x node_modules/.bin/cre-compile ]]; then
 fi
 
 cd "$ROOT/packages/cre"
+cre workflow simulate workout-ingest \
+  --target staging-settings \
+  --non-interactive \
+  --trigger-index 0 \
+  --skip-type-checks \
+  --env "$CRE_ENV"
+
 cre workflow simulate audit-firewall \
   --target staging-settings \
   --non-interactive \

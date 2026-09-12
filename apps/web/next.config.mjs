@@ -29,7 +29,7 @@ const nextConfig = {
     const orch = rootEnv().NEXT_PUBLIC_ORCHESTRATOR_URL || process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:8787";
     return [{ source: "/orch/:path*", destination: `${orch}/:path*` }];
   },
-  transpilePackages: ["@stakefit/shared", "@hashgraph/sdk", "@hashgraph/hedera-wallet-connect"],
+  transpilePackages: ["@stakefit/shared", "@hashgraph/sdk", "@hashgraph/hedera-wallet-connect", "@worldcoin/idkit", "@worldcoin/idkit-core"],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

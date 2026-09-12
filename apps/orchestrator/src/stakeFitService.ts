@@ -1,6 +1,7 @@
 import { randomBytes, createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { ethers } from "ethers";
 import {
   authorizationUrl,
@@ -17,7 +18,9 @@ import { rankWithTies } from "@stakefit/health";
 import {
   DISTANCE_CATALOG,
   catalogById,
+  localDayBounds,
   marketStatusAt,
+  raceDayBounds,
   splitPot,
   type DistanceId,
   type ExerciseSession,
@@ -38,6 +41,7 @@ export interface StakeUser {
   healthUserId?: string;
   exercises: ExerciseSession[];
   lastSyncTime?: string;
+  fetchedAt?: number;
   deviceVersion?: string;
 }
 
@@ -45,6 +49,7 @@ interface StoredResult {
   userId: string;
   timeMs: number;
   exerciseId: string;
+  scoredBy?: "cre";
 }
 
 interface Certificate {
@@ -169,9 +174,20 @@ export class StakeFitService {
     } catch {
       // pairedDevices needs settings.readonly. Workouts still load with activity scope.
     }
-    const sessions = await listAllExercises(client, { maxPages: 8 });
-    user.exercises = sessions;
-    user.lastSyncTime = devices[0]?.lastSyncTime ?? (sessions[0] ? new Date().toISOString() : user.lastSyncTime);
+    const sessions = await listAllExercises(client, { maxPages: 40 });
+    const byId = new Map(user.exercises.map((row) => [row.id, row]));
+    for (const row of sessions) byId.set(row.id, row);
+    user.exercises = [...byId.values()].sort((a, b) => b.startMs - a.startMs);
+    console.log(
+      "health sync",
+      user.email,
+      sessions.length,
+      "newest",
+      sessions[0] ? new Date(sessions[0].startMs).toISOString() : "none",
+      "pages=all",
+    );
+    user.fetchedAt = Date.now();
+    user.lastSyncTime = new Date().toISOString();
     user.deviceVersion =
       devices.find((d) => /air/i.test(d.deviceVersion ?? ""))?.deviceVersion ??
       devices[0]?.deviceVersion ??
@@ -182,7 +198,7 @@ export class StakeFitService {
     }
     this.ingestOpenMarkets(user);
     this.persist();
-    return { sessions, lastSyncTime: user.lastSyncTime, devices: devices.map((d) => d.deviceVersion ?? d.name) };
+    return { sessions: user.exercises, lastSyncTime: user.lastSyncTime, devices: devices.map((d) => d.deviceVersion ?? d.name) };
   }
 
   history(userId: string): HistoryRow[] {
@@ -194,7 +210,8 @@ export class StakeFitService {
       for (const market of this.markets.values()) {
         const catalog = catalogById(market.distanceId);
         if (!catalog) continue;
-        const inWindow = session.startMs >= market.startMs && session.startMs <= market.endMs;
+        const day = raceDayBounds(market);
+        const inWindow = session.startMs >= day.startMs && session.startMs <= day.endMs;
         const submitted = (this.results.get(market.id) ?? []).find((row) => row.exerciseId === session.id);
         const entered = (this.entries.get(market.id) ?? []).some((row) => row.userId === userId);
         if (inWindow && session.distanceMillimeters >= catalog.millimeters) {
@@ -212,9 +229,9 @@ export class StakeFitService {
       if (session.distanceMillimeters <= 0) {
         statusNote = "No distance from Fitbit";
       } else if (this.markets.size === 0) {
-        statusNote = "No heat is open yet";
+        statusNote = "No race is open yet";
       } else if (qualifiedMarkets.length === 0) {
-        statusNote = "Started outside every heat window";
+        statusNote = "Started on a different day than the open race";
       } else {
         statusNote = `Qualifies for ${qualifiedMarkets.map((row) => row.label).join(", ")}`;
       }
@@ -243,6 +260,7 @@ export class StakeFitService {
     const entries = this.entries.get(market.id) ?? [];
     const results = this.results.get(market.id) ?? [];
     const hideTimes = market.hidden && market.status !== "resolved";
+    const catalog = catalogById(market.distanceId);
     return {
       ...market,
       entries: entries.map((entry) => ({
@@ -255,7 +273,92 @@ export class StakeFitService {
         exerciseId: row.exerciseId,
         timeMs: hideTimes && row.userId !== viewerId ? undefined : row.timeMs,
         hidden: hideTimes && row.userId !== viewerId,
+        scoredBy: row.scoredBy,
       })),
+      yours: viewerId ? this.viewerQualify(market, viewerId, catalog?.millimeters ?? 0, catalog?.label ?? "the distance") : undefined,
+      partners: this.partners(viewerId ? this.users.get(viewerId) : undefined),
+    };
+  }
+
+  partners(viewer?: StakeUser) {
+    return {
+      hedera: {
+        network: "testnet",
+        x402: Boolean(this.config.payToAccount) && !this.config.skipPayment,
+        payTo: this.config.payToAccount || undefined,
+        hcsTopic: process.env.HCS_AUDIT_TOPIC_ID || undefined,
+        htsToken: process.env.HTS_CERTIFICATE_TOKEN_ID || undefined,
+      },
+      chainlink: {
+        confidentialScore: true,
+        vrf: Boolean(this.config.vrfSubscriptionId),
+      },
+      graph: {
+        live: Boolean(process.env.STAKEFIT_SUBGRAPH_QUERY_URL),
+      },
+      world: {
+        selfieRequired: Boolean(this.config.worldAppId),
+        verified: Boolean(viewer?.worldNullifier && viewer.worldNullifier !== "world:skipped"),
+      },
+    };
+  }
+
+  async logHcs(entry: Record<string, unknown>): Promise<void> {
+    try {
+      const { loadHederaConfig, makeClient, hasHederaCredentials, logAction } = await import("@stakefit/hedera");
+      const hedera = loadHederaConfig();
+      if (!hasHederaCredentials(hedera) || !hedera.auditTopicId) return;
+      const client = makeClient(hedera);
+      try {
+        await logAction(client, hedera.auditTopicId, entry);
+      } finally {
+        client.close();
+      }
+    } catch (err) {
+      console.warn("HCS skipped:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  private viewerQualify(
+    market: Market,
+    viewerId: string,
+    needMm: number,
+    distanceLabel: string,
+  ): { status: string; note: string; timeMs?: number; nearest?: { startMs: number; name: string; distanceMillimeters: number } } {
+    const result = (this.results.get(market.id) ?? []).find((row) => row.userId === viewerId);
+    if (result) {
+      return { status: "counted", note: "Chainlink CRE scored your fastest qualifying time on this day.", timeMs: result.timeMs };
+    }
+    const user = this.users.get(viewerId);
+    if (!user) {
+      return { status: "none", note: `We use the fastest Fitbit time that started today and covered ${distanceLabel}.` };
+    }
+    const day = raceDayBounds(market);
+    const inDay = user.exercises.filter((session) => session.startMs >= day.startMs && session.startMs <= day.endMs);
+    const covered = inDay.filter((session) => session.distanceMillimeters >= needMm && session.activeDurationMs > 0);
+    if (covered.length) {
+      const best = covered.reduce((a, b) => (a.activeDurationMs < b.activeDurationMs ? a : b));
+      return {
+        status: "ready",
+        note: "This session counts once you pay to enter.",
+        timeMs: best.activeDurationMs,
+      };
+    }
+    if (inDay.length) {
+      return {
+        status: "short",
+        note: `You have a session today, but none covered ${distanceLabel}.`,
+      };
+    }
+    const nearby = user.exercises
+      .filter((session) => session.distanceMillimeters > 0)
+      .sort((a, b) => Math.abs(a.startMs - market.startMs) - Math.abs(b.startMs - market.startMs))[0];
+    return {
+      status: "none",
+      note: `No Fitbit session started on this day. Fastest ${distanceLabel} is what counts.`,
+      nearest: nearby
+        ? { startMs: nearby.startMs, name: nearby.displayName, distanceMillimeters: nearby.distanceMillimeters }
+        : undefined,
     };
   }
 
@@ -270,14 +373,14 @@ export class StakeFitService {
   }): Promise<Market> {
     const catalog = catalogById(input.distanceId);
     if (!catalog) throw new Error("distance is not in the catalog");
-    if (input.endMs <= input.startMs) throw new Error("end must be after start");
+    const day = localDayBounds(input.startMs || Date.now());
     const id = String(this.localMarketSeq++);
     const market: Market = {
       id,
       distanceId: catalog.id,
       label: catalog.label,
-      startMs: input.startMs,
-      endMs: input.endMs,
+      startMs: day.startMs,
+      endMs: day.endMs,
       graceSec: input.graceSec,
       hidden: input.hidden,
       houseBps: input.houseBps,
@@ -312,6 +415,15 @@ export class StakeFitService {
     this.persist();
     this.enqueueChain(() => this.chainRecordEntry(market, userId, hederaAccount, paymentRef));
     if (user) this.ingestOpenMarkets(user);
+    void this.logHcs({
+      type: "stakefit.enter",
+      protocol: "x402",
+      identity: "hcs-14",
+      marketId,
+      userId,
+      hederaAccount,
+      paymentRef,
+    });
     void this.syncExercises(userId).catch((err) => {
       console.warn("enter sync skipped:", err instanceof Error ? err.message : err);
     });
@@ -358,11 +470,12 @@ export class StakeFitService {
       this.refreshStatus(market);
       if (!["open", "grace", "resolving"].includes(market.status)) continue;
       if (!(this.entries.get(market.id) ?? []).some((row) => row.userId === user.id)) continue;
+      const day = raceDayBounds(market);
       const scored = ingestWorkout({
         userId: user.id,
         distanceId: market.distanceId,
-        startMs: market.startMs,
-        endMs: market.endMs,
+        startMs: day.startMs,
+        endMs: day.endMs,
         sessions: user.exercises,
       });
       if (!scored.ok || scored.timeMs === undefined || !scored.exerciseId) continue;
@@ -370,10 +483,18 @@ export class StakeFitService {
       const prev = list.find((row) => row.userId === user.id);
       if (!prev || scored.timeMs < prev.timeMs) {
         const next = list.filter((row) => row.userId !== user.id);
-        next.push({ userId: user.id, timeMs: scored.timeMs, exerciseId: scored.exerciseId });
+        next.push({ userId: user.id, timeMs: scored.timeMs, exerciseId: scored.exerciseId, scoredBy: "cre" });
         this.results.set(market.id, next);
         this.persist();
         this.enqueueChain(() => this.chainSubmitResult(market, user.id, scored.timeMs, scored.exerciseId));
+        void this.logHcs({
+          type: "stakefit.result",
+          scoredBy: "cre",
+          marketId: market.id,
+          userId: user.id,
+          timeMs: scored.timeMs,
+          exerciseId: scored.exerciseId,
+        });
       }
     }
   }
@@ -402,7 +523,13 @@ export class StakeFitService {
     this.persist();
     this.enqueueChain(() => this.chainResolve(market, opts?.admin ?? false));
     void this.payWinners(market);
-    void this.logResolve(market);
+    void this.logHcs({
+      type: "stakefit.resolve",
+      marketId: market.id,
+      winners: market.winners,
+      potTinybars: market.potTinybars,
+      vrf: Boolean(this.config.vrfSubscriptionId),
+    });
     return market;
   }
 
@@ -449,7 +576,8 @@ export class StakeFitService {
   }
 
   private statePath(): string {
-    return resolve(process.cwd(), "../../.data/stakefit.json");
+    if (process.env.STAKEFIT_STATE_PATH) return resolve(process.env.STAKEFIT_STATE_PATH);
+    return resolve(dirname(fileURLToPath(import.meta.url)), "../../../.data/stakefit.json");
   }
 
   private persist(): void {
@@ -481,14 +609,46 @@ export class StakeFitService {
         users?: StakeUser[];
       };
       this.localMarketSeq = raw.seq ?? 1;
-      for (const market of raw.markets ?? []) this.markets.set(market.id, market);
+      let clamped = false;
+      for (const market of raw.markets ?? []) {
+        if (this.clampToRaceDay(market)) clamped = true;
+        this.markets.set(market.id, market);
+      }
       for (const [id, rows] of Object.entries(raw.entries ?? {})) this.entries.set(id, rows);
       for (const [id, rows] of Object.entries(raw.results ?? {})) this.results.set(id, rows);
       for (const user of raw.users ?? []) {
         this.users.set(user.id, { ...user, exercises: user.exercises ?? [] });
       }
+      if (clamped) {
+        this.dropResultsOutsideRaceDay();
+        this.persist();
+      }
     } catch {
       // First boot, or the file is missing.
+    }
+  }
+
+  private clampToRaceDay(market: Market): boolean {
+    if (market.status === "resolved") return false;
+    const day = raceDayBounds(market);
+    if (day.startMs === market.startMs && day.endMs === market.endMs) return false;
+    market.startMs = day.startMs;
+    market.endMs = day.endMs;
+    return true;
+  }
+
+  private dropResultsOutsideRaceDay(): void {
+    for (const [id, rows] of this.results) {
+      const market = this.markets.get(id);
+      if (!market) continue;
+      const day = raceDayBounds(market);
+      this.results.set(
+        id,
+        rows.filter((row) => {
+          const session = this.users.get(row.userId)?.exercises.find((item) => item.id === row.exerciseId);
+          return Boolean(session && session.startMs >= day.startMs && session.startMs <= day.endMs);
+        }),
+      );
     }
   }
 
@@ -584,26 +744,6 @@ export class StakeFitService {
     }
   }
 
-  private async logResolve(market: Market): Promise<void> {
-    try {
-      const { loadHederaConfig, makeClient, hasHederaCredentials, logAction } = await import("@stakefit/hedera");
-      const hedera = loadHederaConfig();
-      if (!hasHederaCredentials(hedera) || !hedera.auditTopicId) return;
-      const client = makeClient(hedera);
-      try {
-        await logAction(client, hedera.auditTopicId, {
-          type: "stakefit.resolve",
-          marketId: market.id,
-          winners: market.winners,
-          potTinybars: market.potTinybars,
-        });
-      } finally {
-        client.close();
-      }
-    } catch {
-      // HCS is best-effort.
-    }
-  }
 }
 
 function mockSessions(markets: Market[]): ExerciseSession[] {

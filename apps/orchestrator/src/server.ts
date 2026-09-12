@@ -220,7 +220,13 @@ export function createApp() {
     res.end();
   });
 
-  app.get("/cre/vrf-seed", (_req, res) => {
+  app.get("/cre/vrf-seed", (req, res) => {
+    const marketId = String(req.query.marketId ?? "");
+    if (marketId) {
+      const market = stakeFit.getMarket(marketId);
+      res.type("text/plain").send(market?.vrfSeed ?? "0");
+      return;
+    }
     res.type("text/plain").send(String(Math.floor(Math.random() * 1_000_000)));
   });
 

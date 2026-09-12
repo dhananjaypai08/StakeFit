@@ -16,6 +16,7 @@
     "@hashgraph/sdk": "2.62.0",
     "@stakefit/shared": "workspace:*",
     "@walletconnect/modal": "^2.7.0",
+    "@worldcoin/idkit": "^4.2.3",
     "buffer": "^6.0.3",
     "next": "14.2.13",
     "react": "18.3.1",

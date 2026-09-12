@@ -86,20 +86,27 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
     if (!user) return;
     try {
       const result = await service.syncExercises(user.id);
-      res.json(result);
+      res.json({
+        ...result,
+        exercises: service.history(user.id),
+        lastSyncTime: user.lastSyncTime,
+        deviceVersion: user.deviceVersion,
+      });
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
   });
 
-  app.get("/me/exercises", (req, res) => {
+  app.get("/me/exercises", async (req, res) => {
     const user = requireUser(req, res);
     if (!user) return;
-    const stale = !user.lastSyncTime || Date.now() - Date.parse(user.lastSyncTime) > 45_000;
+    const stale = !user.fetchedAt || Date.now() - user.fetchedAt > 45_000;
     if (stale) {
-      void service.syncExercises(user.id).catch((err) => {
+      try {
+        await service.syncExercises(user.id);
+      } catch (err) {
         console.warn("page sync skipped:", err instanceof Error ? err.message : err);
-      });
+      }
     }
     res.json({ exercises: service.history(user.id), lastSyncTime: user.lastSyncTime, deviceVersion: user.deviceVersion });
   });
@@ -109,31 +116,25 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
   });
 
   app.get("/graph/markets", async (_req, res) => {
-    const url = process.env.STAKEFIT_SUBGRAPH_QUERY_URL;
-    if (!url) {
-      res.json({ source: "local", markets: service.listMarkets() });
-      return;
-    }
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(process.env.GRAPH_GATEWAY_API_KEY ? { Authorization: `Bearer ${process.env.GRAPH_GATEWAY_API_KEY}` } : {}),
-        },
-        body: JSON.stringify({
-          query: "{ markets(first: 25, orderBy: createdAt, orderDirection: desc) { id hidden resolved firstTimeMs entryTinybars } }",
-        }),
-      });
-      res.json({ source: "graph", ...(await response.json()) });
+      res.json(await queryGraph(service));
     } catch (err) {
       res.status(502).json({ error: (err as Error).message });
     }
   });
 
-  app.get("/markets", (req, res) => {
+  app.get("/partners", (req, res) => {
+    res.json(service.partners(userFrom(req)));
+  });
+
+  app.get("/markets", async (req, res) => {
     const user = userFrom(req);
-    res.json({ markets: service.listMarkets().map((market) => service.publicView(market, user?.id)) });
+    const graph = await queryGraph(service).catch(() => ({ source: "local" as const, intel: "The Graph is unreachable; using the live orchestrator board." }));
+    res.json({
+      markets: service.listMarkets().map((market) => service.publicView(market, user?.id)),
+      graph,
+      partners: service.partners(user),
+    });
   });
 
   app.get("/markets/:id", (req, res) => {
@@ -251,6 +252,25 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
     res.status(204).end();
   });
 
+  app.get("/world/rp-context", (_req, res) => {
+    if (!config.worldRpId || !config.worldRpSigningKey) {
+      res.status(503).json({ error: "Set WORLD_RP_ID and WORLD_RP_SIGNING_KEY for Selfie Check" });
+      return;
+    }
+    void import("@worldcoin/idkit-core/signing")
+      .then(({ signRequest }) => {
+        const signed = signRequest({ signingKeyHex: config.worldRpSigningKey as string, action: "stakefit-run" });
+        res.json({
+          rp_id: config.worldRpId,
+          nonce: signed.nonce,
+          created_at: signed.createdAt,
+          expires_at: signed.expiresAt,
+          signature: signed.sig,
+        });
+      })
+      .catch((err) => res.status(500).json({ error: (err as Error).message }));
+  });
+
   app.post("/markets/:id/world", async (req, res) => {
     const user = requireUser(req, res);
     if (!user) return;
@@ -321,21 +341,69 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
   });
 }
 
+async function queryGraph(service: StakeFitService): Promise<{
+  source: "graph" | "local";
+  intel: string;
+  markets?: unknown;
+}> {
+  const url = process.env.STAKEFIT_SUBGRAPH_QUERY_URL;
+  if (!url) {
+    return { source: "local", intel: "Subgraph URL is not set. Local race list is serving until Studio is queried." };
+  }
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(process.env.GRAPH_GATEWAY_API_KEY ? { Authorization: `Bearer ${process.env.GRAPH_GATEWAY_API_KEY}` } : {}),
+    },
+    body: JSON.stringify({
+      query: `{
+        markets(first: 25, orderBy: createdAt, orderDirection: desc) {
+          id hidden resolved firstTimeMs entryTinybars
+          entries { id }
+          results { id hasResult }
+        }
+      }`,
+    }),
+  });
+  const body = (await response.json()) as {
+    data?: { markets?: Array<{ id: string; resolved?: boolean; entries?: unknown[]; results?: unknown[] }> };
+    errors?: Array<{ message: string }>;
+  };
+  if (body.errors?.length) {
+    return { source: "local", intel: `Graph error: ${body.errors[0]?.message}`, markets: service.listMarkets() };
+  }
+  const rows = body.data?.markets ?? [];
+  const open = rows.filter((row) => !row.resolved).length;
+  const entered = rows.reduce((sum, row) => sum + (row.entries?.length ?? 0), 0);
+  const scored = rows.reduce((sum, row) => sum + (row.results?.length ?? 0), 0);
+  return {
+    source: "graph",
+    intel: `${rows.length} races indexed. ${open} still open. ${entered} paid entries. ${scored} CRE results on Sepolia.`,
+    markets: rows,
+  };
+}
+
 async function verifyWorldProof(
   config: OrchestratorConfig,
   body: Record<string, unknown>,
 ): Promise<string> {
-  const nullifier = String(body.nullifierHash ?? body.nullifier ?? "");
+  const payload = (body.idkitResponse as Record<string, unknown> | undefined) ?? body;
+  const responses = payload.responses as Array<{ nullifier?: string }> | undefined;
+  const nullifier = String(
+    body.nullifierHash ??
+      body.nullifier_hash ??
+      body.nullifier ??
+      payload.nullifier ??
+      responses?.[0]?.nullifier ??
+      "",
+  );
   if (!nullifier) throw new Error("World proof nullifier required");
   if (!config.worldRpId) return nullifier;
   const res = await fetch(`https://developer.world.org/api/v4/verify/${config.worldRpId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ...body,
-      app_id: config.worldAppId,
-      action: body.action ?? "stakefit-run",
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`World verify failed: ${res.status} ${await res.text()}`);
   return nullifier;
@@ -351,7 +419,9 @@ function publicUser(user: StakeUser, service: StakeFitService) {
     lastSyncTime: user.lastSyncTime,
     deviceVersion: user.deviceVersion,
     worldNullifier: user.worldNullifier,
+    worldVerified: Boolean(user.worldNullifier && user.worldNullifier !== "world:skipped"),
     admin: service.isAdmin(user),
+    partners: service.partners(user),
   };
 }
 
@@ -396,6 +466,14 @@ async function mintRunCertificate(user: StakeUser, market: { id: string; distanc
       reportCid: cid,
     });
     service.recordCertificate(user.id, market.id, cert.serial, cid);
+    void service.logHcs({
+      type: "stakefit.certificate",
+      marketId: market.id,
+      userId: user.id,
+      serial: cert.serial,
+      cid,
+      worldNullifier: user.worldNullifier,
+    });
     return { serial: cert.serial, tokenId: hedera.certificateTokenId, cid };
   } finally {
     client.close();

@@ -8,7 +8,9 @@ import { PageHero } from "../../components/PageHero";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatActivityName, formatDistance, formatDuration, formatTinybars } from "../../lib/format";
+import { localDayBounds } from "@stakefit/shared";
 import { PHOTOS } from "../../lib/photos";
+import { PartnerStrip } from "../../components/PartnerStrip";
 import { useViewMode } from "../../lib/viewMode";
 
 interface MarketCard {
@@ -51,33 +53,70 @@ export default function AppPage() {
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
   const [page, setPage] = useState(0);
+  const [fetching, setFetching] = useState(true);
+  const [sessionsReady, setSessionsReady] = useState(false);
+  const [lastSync, setLastSync] = useState(user?.lastSyncTime);
+  const [graphIntel, setGraphIntel] = useState("");
+  const [graphSource, setGraphSource] = useState("");
+  const [partners, setPartners] = useState<Parameters<typeof PartnerStrip>[0]["partners"]>();
   const PAGE_SIZE = 8;
 
-  async function load() {
+  async function loadMarkets() {
     const [list, catalog] = await Promise.all([
-      api<{ markets: MarketCard[] }>("/markets"),
+      api<{
+        markets: MarketCard[];
+        graph?: { source?: string; intel?: string };
+        partners?: Parameters<typeof PartnerStrip>[0]["partners"];
+      }>("/markets"),
       api<{ distances: Distance[] }>("/catalog"),
     ]);
     setMarkets(list.markets);
     setDistances(catalog.distances);
-    if (user) {
-      const hist = await api<{ exercises: Workout[] }>("/me/exercises");
+    if (list.graph?.intel) setGraphIntel(list.graph.intel);
+    if (list.graph?.source) setGraphSource(list.graph.source);
+    if (list.partners) setPartners(list.partners);
+  }
+
+  async function loadSessions(opts?: { sync?: boolean; quiet?: boolean; resetPage?: boolean }) {
+    if (!user) return;
+    if (!opts?.quiet) setFetching(true);
+    try {
+      if (opts?.sync) {
+        const synced = await api<{ exercises?: Workout[]; lastSyncTime?: string }>("/me/sync", { method: "POST" });
+        if (synced.exercises) {
+          setWorkouts(synced.exercises);
+          if (synced.lastSyncTime) setLastSync(synced.lastSyncTime);
+          if (opts.resetPage) setPage(0);
+          return;
+        }
+      }
+      const hist = await api<{ exercises: Workout[]; lastSyncTime?: string }>("/me/exercises");
       setWorkouts(hist.exercises);
-      setPage(0);
+      if (hist.lastSyncTime) setLastSync(hist.lastSyncTime);
+      if (opts?.resetPage) setPage(0);
+    } finally {
+      setFetching(false);
+      setSessionsReady(true);
     }
+  }
+
+  async function load(opts?: { sync?: boolean; quiet?: boolean; resetPage?: boolean }) {
+    await Promise.all([loadMarkets(), loadSessions(opts)]);
   }
 
   useEffect(() => {
     if (!user) return;
     void (async () => {
       try {
-        await load();
+        await load({ sync: true, resetPage: true });
       } catch (err) {
         setError((err as Error).message);
+        setFetching(false);
+        setSessionsReady(true);
       }
     })();
     const tick = window.setInterval(() => {
-      void load().catch(() => undefined);
+      void load({ quiet: true }).catch(() => undefined);
     }, 30_000);
     return () => window.clearInterval(tick);
   }, [user]);
@@ -90,8 +129,7 @@ export default function AppPage() {
         method: "POST",
         body: JSON.stringify({
           distanceId,
-          startMs: Date.now() - 16 * 24 * 60 * 60_000,
-          endMs: Date.now() + 2 * 60 * 60_000,
+          ...localDayBounds(),
           graceSec: 900,
           hidden: true,
           houseBps: 1000,
@@ -118,7 +156,7 @@ export default function AppPage() {
 
   if (!user) return null;
 
-  const listed = workouts.filter((row) => row.distanceMillimeters > 0);
+  const listed = workouts;
   const last = listed[0];
   const week = listed.filter((row) => row.startMs >= Date.now() - 7 * 24 * 60 * 60_000);
   const weekMm = week.reduce((sum, row) => sum + row.distanceMillimeters, 0);
@@ -131,19 +169,23 @@ export default function AppPage() {
         alt="Runner wearing a Fitbit"
         eyebrow={isAdmin ? "Admin" : "Today"}
         title={
-          last
-            ? `${formatActivityName(last.displayName, last.exerciseType)}. ${formatDistance(last.distanceMillimeters)}.`
-            : isAdmin
-              ? "Start a race"
-              : "No Fitbit sessions yet"
+          !sessionsReady || (fetching && !last)
+            ? "Fetching Fitbit…"
+            : last
+              ? `${formatActivityName(last.displayName, last.exerciseType)}. ${formatDistance(last.distanceMillimeters)}.`
+              : isAdmin
+                ? "Start a race"
+                : "No Fitbit sessions yet"
         }
       >
         <p className="mt-4 max-w-xl text-base leading-7 text-white/90">
-          {last
-            ? `${new Date(last.startMs).toLocaleString()} · ${formatDuration(last.activeDurationMs)}${
-                last.heartRateBpm ? ` · ${Math.round(last.heartRateBpm)} bpm` : ""
-              }`
-            : "Sync Fitbit after the Health app updates, then pay to enter a race."}
+          {!sessionsReady || (fetching && !last)
+            ? "Pulling live walks and runs from Google Health."
+            : last
+              ? `${new Date(last.startMs).toLocaleString()} · ${formatDuration(last.activeDurationMs)}${
+                  last.heartRateBpm ? ` · ${Math.round(last.heartRateBpm)} bpm` : ""
+                }`
+              : "After the phone syncs, we pull Fitbit on our own."}
         </p>
         <div className="mt-6">
           <Breadcrumbs items={[{ href: "/", label: "Home" }, { label: "Races" }]} />
@@ -173,13 +215,16 @@ export default function AppPage() {
         <p className="page-x w-full text-sm text-red-200">{error}</p>
       ) : null}
 
+      <PartnerStrip partners={partners} graphIntel={graphIntel} graphSource={graphSource} />
+
       <section className="page-x w-full space-y-6 pb-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-white/70">Open now</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Races</h2>
             <p className="mt-2 max-w-lg text-sm leading-6 text-white/85">
-              A race is one distance and a time window. Pay to enter. Your fastest qualifying Fitbit time is what we use.
+              A race is one distance for today. We use your fastest Fitbit time that started today and covered that
+              distance.
             </p>
           </div>
           {isAdmin ? (
@@ -223,7 +268,10 @@ export default function AppPage() {
                       {market.status} · {market.hidden ? "hidden times" : "live board"}
                     </p>
                     <p className="mt-1 text-xs text-zinc-600">
-                      {new Date(market.startMs).toLocaleDateString()} to {new Date(market.endMs).toLocaleDateString()}
+                      {new Date(market.startMs).toLocaleDateString()}
+                      {new Date(market.startMs).toLocaleDateString() !== new Date(market.endMs).toLocaleDateString()
+                        ? ` to ${new Date(market.endMs).toLocaleDateString()}`
+                        : " · fastest time that started today"}
                     </p>
                   </div>
                   <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-zinc-300">
@@ -265,29 +313,37 @@ export default function AppPage() {
               What the Race column means
             </h2>
             <p className="mt-3 max-w-md text-sm leading-6 text-white/85">
-              If a walk started during an open race and covered that distance, the race name appears. Empty means no
-              matching race, or you have not started one yet.
+              The race name appears only if the session started today and covered the race distance. A dash means it
+              was another day, or no race is open today.
             </p>
           </div>
         </div>
       </section>
 
       <section className="page-x w-full space-y-6 py-10">
-        <div className="flex items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-white/70">Fitbit</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight">Your Fitbit sessions</h2>
+            <p className="mt-2 flex items-center gap-2 text-sm text-white/70">
+              {fetching ? <span className="live-dot" aria-hidden /> : null}
+              {fetching
+                ? "Fetching live sessions from Google Health…"
+                : lastSync
+                  ? `Live from Fitbit · updated ${new Date(lastSync).toLocaleTimeString()}`
+                  : "Live from Fitbit"}
+            </p>
           </div>
           <Action
             tone="ghost"
+            disabled={fetching}
             onClick={() =>
-              void api("/me/sync", { method: "POST" })
+              void load({ sync: true, resetPage: true })
                 .then(() => refresh())
-                .then(() => load())
                 .catch((err) => setError(err.message))
             }
           >
-            Refresh
+            {fetching ? "Fetching…" : "Refresh"}
           </Action>
         </div>
         <div className="overflow-hidden rounded-xl border border-white/[0.08]">
@@ -304,7 +360,17 @@ export default function AppPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/[0.06]">
-              {listed.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map((row) => (
+              {fetching && listed.length === 0
+                ? [0, 1, 2, 3, 4].map((row) => (
+                    <tr key={`skel-${row}`}>
+                      {Array.from({ length: 7 }).map((_, cell) => (
+                        <td key={cell} className="px-4 py-3.5">
+                          <div className="skel" style={{ width: cell === 0 ? "68%" : cell === 1 ? "52%" : "40%" }} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                : listed.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map((row) => (
                 <tr key={row.id}>
                   <td className="px-4 py-3 text-zinc-400">{new Date(row.startMs).toLocaleString()}</td>
                   <td className="px-4 py-3">{formatActivityName(row.displayName, row.exerciseType)}</td>
@@ -340,9 +406,11 @@ export default function AppPage() {
           </table>
           <div className="flex items-center justify-between border-t border-white/[0.06] px-4 py-3 text-sm text-zinc-500">
             <span>
-              {listed.length === 0
-                ? "No sessions with distance"
-                : `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, listed.length)} of ${listed.length}`}
+              {fetching && listed.length === 0
+                ? "Fetching live Fitbit…"
+                : listed.length === 0
+                  ? "No sessions from Google Health yet"
+                  : `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, listed.length)} of ${listed.length}`}
             </span>
             <div className="flex gap-2">
               <Action tone="quiet" disabled={page === 0} onClick={() => setPage((n) => Math.max(0, n - 1))}>

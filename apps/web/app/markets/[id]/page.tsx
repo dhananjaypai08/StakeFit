@@ -7,9 +7,11 @@ import { Breadcrumbs } from "../../../components/Breadcrumbs";
 import { PageHero } from "../../../components/PageHero";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
-import { formatTinybars } from "../../../lib/format";
+import { formatDistance, formatDuration, formatTinybars } from "../../../lib/format";
 import { PHOTOS } from "../../../lib/photos";
 import { connectWallet, encodeXPaymentHeader, signScanPayment, type InvoiceRequirements } from "../../../lib/hederaWallet";
+import { PartnerStrip } from "../../../components/PartnerStrip";
+import { SelfieCheck } from "../../../components/SelfieCheck";
 import { useViewMode } from "../../../lib/viewMode";
 
 interface View {
@@ -23,6 +25,18 @@ interface View {
   endMs: number;
   results: Array<{ userId: string; timeMs?: number; hidden?: boolean }>;
   winners?: Array<{ userId: string; timeMs: number; rank: number; hederaAccount: string }>;
+  yours?: {
+    status: string;
+    note: string;
+    timeMs?: number;
+    nearest?: { startMs: number; name: string; distanceMillimeters: number };
+  };
+  partners?: {
+    hedera?: { x402?: boolean; hcsTopic?: string; htsToken?: string; payTo?: string };
+    chainlink?: { confidentialScore?: boolean; vrf?: boolean };
+    graph?: { live?: boolean };
+    world?: { selfieRequired?: boolean; verified?: boolean };
+  };
 }
 
 export default function MarketPage() {
@@ -103,7 +117,9 @@ export default function MarketPage() {
     setBusy("mint");
     setError("");
     try {
-      await api(`/markets/${params.id}/world`, { method: "POST", body: JSON.stringify({}) });
+      if (view?.partners?.world?.selfieRequired && !view.partners.world.verified && !user?.worldVerified) {
+        throw new Error("Complete Selfie Check first. It is the fairness check before a run ID mints.");
+      }
       await api(`/markets/${params.id}/certificate`, { method: "POST" });
       await load();
     } catch (err) {
@@ -120,8 +136,8 @@ export default function MarketPage() {
     <main>
       <PageHero src={PHOTOS.track} alt="Athletes on a running track" eyebrow="Race" title={view.label}>
         <p className="mt-4 max-w-xl text-base leading-7 text-white/90">
-          Pay {formatTinybars(view.entryTinybars)} to enter. We use your fastest Fitbit time that started in this window
-          and covered the distance. Pot {formatTinybars(view.potTinybars)}.
+          Fastest Fitbit time that started today and covered this distance. Pay {formatTinybars(view.entryTinybars)} to
+          place. Pot {formatTinybars(view.potTinybars)}.
           {view.hidden ? " Other people cannot see times until payout." : ""}
         </p>
         <p className="mt-2 text-sm text-white/80">
@@ -138,26 +154,38 @@ export default function MarketPage() {
             {view.status === "resolved" ? "Paid out" : busy === "resolve" ? "Paying out…" : "Pay out this race"}
           </Action>
         ) : (
-          <ol className="grid gap-4 sm:grid-cols-3">
+          <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">01</p>
+              <p className="text-xs text-white/60">01 · Hedera</p>
               <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void enter()}>
                 <h2 className="text-base font-medium text-white">{busy === "enter" ? "Paying…" : "Pay to enter"}</h2>
-                <p className="mt-1.5 text-sm leading-6 text-white/85">Small HBAR entry from HashPack. Required to place.</p>
+                <p className="mt-1.5 text-sm leading-6 text-white/85">x402 HBAR from HashPack. Written to HCS.</p>
               </button>
             </li>
             <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">02</p>
+              <p className="text-xs text-white/60">02 · Chainlink</p>
               <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void syncWorkout()}>
-                <h2 className="text-base font-medium text-white">{busy === "sync" ? "Syncing…" : "Sync Fitbit"}</h2>
-                <p className="mt-1.5 text-sm leading-6 text-white/85">Pull walks and runs after the phone has synced.</p>
+                <h2 className="text-base font-medium text-white">{busy === "sync" ? "Scoring…" : "Sync and score"}</h2>
+                <p className="mt-1.5 text-sm leading-6 text-white/85">Fitbit in, CRE confidential score out.</p>
               </button>
             </li>
             <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">03</p>
+              <p className="text-xs text-white/60">03 · World</p>
+              <SelfieCheck
+                marketId={view.id}
+                disabled={Boolean(busy)}
+                verified={view.partners?.world?.verified || user.worldVerified}
+                onDone={async () => {
+                  await refresh();
+                  await load();
+                }}
+              />
+            </li>
+            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
+              <p className="text-xs text-white/60">04 · HTS</p>
               <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void mint()}>
                 <h2 className="text-base font-medium text-white">{busy === "mint" ? "Minting…" : "Save a certificate"}</h2>
-                <p className="mt-1.5 text-sm leading-6 text-white/85">Optional soulbound run ID on Hedera.</p>
+                <p className="mt-1.5 text-sm leading-6 text-white/85">Soulbound run ID after Selfie Check.</p>
               </button>
             </li>
           </ol>
@@ -165,10 +193,29 @@ export default function MarketPage() {
         {error ? <p className="mt-6 text-sm text-red-200">{error}</p> : null}
       </section>
 
+      <PartnerStrip partners={view.partners} />
+
       <section className="page-x w-full pb-14">
         <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Board</p>
+        {view.yours ? (
+          <div className="mt-3 mb-6 max-w-2xl rounded-xl border border-white/[0.08] bg-ink-900 px-5 py-4">
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Your time today</p>
+            <p className="mt-2 text-sm leading-6 text-white/85">
+              {view.yours.timeMs != null ? `${formatDuration(view.yours.timeMs)}. ` : ""}
+              {view.yours.note}
+            </p>
+            {view.yours.nearest ? (
+              <p className="mt-2 text-sm text-zinc-400">
+                Closest Fitbit session: {view.yours.nearest.name} · {formatDistance(view.yours.nearest.distanceMillimeters)} on{" "}
+                {new Date(view.yours.nearest.startMs).toLocaleDateString()}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {view.results.length === 0 ? (
-          <p className="py-8 text-sm text-zinc-500">No times yet. Pay to enter, then sync a session from this window.</p>
+          <p className="py-8 text-sm text-zinc-500">
+            No time on the board yet. A walk that starts today and covers the distance will count after you enter.
+          </p>
         ) : (
           <table className="w-full text-left text-sm">
             <thead className="text-xs text-zinc-500">

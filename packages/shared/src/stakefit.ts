@@ -22,6 +22,49 @@ export function catalogById(id: string): DistanceCatalogEntry | undefined {
   return DISTANCE_CATALOG.find((row) => row.id === id);
 }
 
+export function civilDate(at = new Date()): string {
+  const year = at.getFullYear();
+  const month = String(at.getMonth() + 1).padStart(2, "0");
+  const day = String(at.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Inclusive local calendar day used when an admin starts a race. */
+export function localDayBounds(now = Date.now()): { startMs: number; endMs: number } {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  end.setMilliseconds(-1);
+  return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+/** Civil range for Health list filters. `endCivil` is exclusive. */
+export function recentCivilRange(days = 90, now = new Date()): { startCivil: string; endCivil: string } {
+  const start = new Date(now);
+  start.setDate(start.getDate() - days);
+  const end = new Date(now);
+  end.setDate(end.getDate() + 1);
+  return { startCivil: civilDate(start), endCivil: civilDate(end) };
+}
+
+const MULTI_DAY_MS = 36 * 60 * 60_000;
+
+/**
+ * A race scores the fastest qualifying session that started on one civil day.
+ * Wider stored windows (from older admin creates) snap to that day.
+ */
+export function raceDayBounds(
+  market: { startMs: number; endMs: number },
+  now = Date.now(),
+): { startMs: number; endMs: number } {
+  if (market.endMs - market.startMs <= MULTI_DAY_MS) {
+    return { startMs: market.startMs, endMs: market.endMs };
+  }
+  const anchor = Math.min(market.endMs, Math.max(market.startMs, now));
+  return localDayBounds(anchor);
+}
+
 export type MarketStatus = "scheduled" | "open" | "grace" | "resolving" | "resolved";
 
 export interface Market {

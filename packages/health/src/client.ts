@@ -18,8 +18,8 @@ export interface HealthClient {
   }>;
   getExercise(id: string): Promise<ExerciseSession | undefined>;
   listPairedDevices(): Promise<PairedDevice[]>;
-  listDistanceIntervals(): Promise<Array<{ startMs: number; endMs: number; millimeters: number }>>;
-  listActiveEnergy(): Promise<Array<{ startMs: number; endMs: number; kcal: number }>>;
+  listDistanceIntervals(opts?: { startCivil?: string; endCivil?: string }): Promise<Array<{ startMs: number; endMs: number; millimeters: number }>>;
+  listActiveEnergy(opts?: { startCivil?: string; endCivil?: string }): Promise<Array<{ startMs: number; endMs: number; kcal: number }>>;
 }
 
 interface MetricsSummary {
@@ -97,30 +97,33 @@ export function createHealthClient(accessToken: string, fetchImpl: typeof fetch 
       const body = await healthGet<{ pairedDevices?: PairedDevice[] }>("/users/me/pairedDevices");
       return body.pairedDevices ?? [];
     },
-    async listDistanceIntervals() {
-      const body = await healthGet<{ dataPoints?: DataPoint[] }>("/users/me/dataTypes/distance/dataPoints", {
-        pageSize: "25",
-      });
-      return (body.dataPoints ?? [])
-        .map((point) => ({
+    async listDistanceIntervals(opts = {}) {
+      return listIntervalPoints(
+        healthGet,
+        "/users/me/dataTypes/distance/dataPoints",
+        "distance",
+        opts,
+        (point) => ({
           startMs: parseRfc3339Ms(point.distance?.interval?.startTime),
           endMs: parseRfc3339Ms(point.distance?.interval?.endTime),
           millimeters: num(point.distance?.millimeters),
-        }))
-        .filter((row) => row.millimeters > 0);
-    },
-    async listActiveEnergy() {
-      const body = await healthGet<{ dataPoints?: DataPoint[] }>(
-        "/users/me/dataTypes/active-energy-burned/dataPoints",
-        { pageSize: "25" },
+        }),
+        (row) => row.millimeters > 0,
       );
-      return (body.dataPoints ?? [])
-        .map((point) => ({
+    },
+    async listActiveEnergy(opts = {}) {
+      return listIntervalPoints(
+        healthGet,
+        "/users/me/dataTypes/active-energy-burned/dataPoints",
+        "activeEnergyBurned",
+        opts,
+        (point) => ({
           startMs: parseRfc3339Ms(point.activeEnergyBurned?.interval?.startTime),
           endMs: parseRfc3339Ms(point.activeEnergyBurned?.interval?.endTime),
           kcal: num(point.activeEnergyBurned?.kcal),
-        }))
-        .filter((row) => row.kcal > 0);
+        }),
+        (row) => row.kcal > 0,
+      );
     },
   };
 }
@@ -138,9 +141,10 @@ export async function listAllExercises(
     if (!batch.nextPageToken) break;
     pageToken = batch.nextPageToken;
   }
+  const range = { startCivil: opts?.startCivil, endCivil: opts?.endCivil };
   const [distances, energy] = await Promise.all([
-    client.listDistanceIntervals().catch(() => []),
-    client.listActiveEnergy().catch(() => []),
+    client.listDistanceIntervals(range).catch(() => []),
+    client.listActiveEnergy(range).catch(() => []),
   ]);
   for (const session of sessions) {
     if (session.distanceMillimeters <= 0) {
@@ -156,14 +160,47 @@ export async function listAllExercises(
       if (kcal) session.caloriesKcal = Math.round(kcal);
     }
   }
+  const needDetail = sessions.filter((row) => row.distanceMillimeters <= 0);
+  await Promise.all(
+    needDetail.map(async (session) => {
+      const full = await client.getExercise(session.id).catch(() => undefined);
+      if (!full) return;
+      if (full.distanceMillimeters > 0) session.distanceMillimeters = full.distanceMillimeters;
+      if (full.caloriesKcal && !session.caloriesKcal) session.caloriesKcal = full.caloriesKcal;
+      if (full.heartRateBpm && !session.heartRateBpm) session.heartRateBpm = full.heartRateBpm;
+    }),
+  );
   return sessions.sort((a, b) => b.startMs - a.startMs);
 }
 
-function civilFilter(startCivil?: string, endCivil?: string): string | undefined {
+function civilFilter(startCivil?: string, endCivil?: string, dataType = "exercise"): string | undefined {
   const parts: string[] = [];
-  if (startCivil) parts.push(`exercise.interval.civil_start_time >= "${startCivil}"`);
-  if (endCivil) parts.push(`exercise.interval.civil_start_time < "${endCivil}"`);
+  if (startCivil) parts.push(`${dataType}.interval.civil_start_time >= "${startCivil}"`);
+  if (endCivil) parts.push(`${dataType}.interval.civil_start_time < "${endCivil}"`);
   return parts.length ? parts.join(" AND ") : undefined;
+}
+
+async function listIntervalPoints<T>(
+  healthGet: <R>(path: string, query?: Record<string, string | undefined>) => Promise<R>,
+  path: string,
+  dataType: string,
+  opts: { startCivil?: string; endCivil?: string },
+  map: (point: DataPoint) => T,
+  keep: (row: T) => boolean,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < 16; page++) {
+    const body = await healthGet<{ dataPoints?: DataPoint[]; nextPageToken?: string }>(path, {
+      pageSize: "1000",
+      pageToken,
+      filter: civilFilter(opts.startCivil, opts.endCivil, dataType),
+    });
+    rows.push(...(body.dataPoints ?? []).map(map).filter(keep));
+    if (!body.nextPageToken) break;
+    pageToken = body.nextPageToken;
+  }
+  return rows;
 }
 
 function overlapSum<T extends { startMs: number; endMs: number }>(

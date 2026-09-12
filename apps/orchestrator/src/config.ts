@@ -41,6 +41,7 @@ export interface OrchestratorConfig {
   healthMock: boolean;
   worldAppId?: string;
   worldRpId?: string;
+  worldRpSigningKey?: string;
   vrfCoordinator?: string;
   vrfSubscriptionId?: string;
   vrfKeyHash?: string;
@@ -68,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorCo
     healthMock: env.HEALTH_MOCK === "1" || env.HEALTH_MOCK === "true",
     worldAppId: env.WORLD_APP_ID || undefined,
     worldRpId: env.WORLD_RP_ID || undefined,
+    worldRpSigningKey: env.WORLD_RP_SIGNING_KEY || undefined,
     vrfCoordinator: env.VRF_COORDINATOR || undefined,
     vrfSubscriptionId: env.VRF_SUBSCRIPTION_ID || undefined,
     vrfKeyHash: env.VRF_KEY_HASH || undefined,

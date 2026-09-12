@@ -12,6 +12,7 @@ export interface Me {
   lastSyncTime?: string;
   deviceVersion?: string;
   hederaAccount?: string;
+  worldVerified?: boolean;
 }
 
 interface AuthState {
