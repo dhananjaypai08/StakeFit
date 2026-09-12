@@ -18,15 +18,17 @@ export function PartnerStrip({
   const items = [
     {
       name: "Hedera",
-      detail: hedera?.x402
-        ? `x402 entry${hedera.hcsTopic ? " · HCS trail" : ""}${hedera.htsToken ? " · HTS run ID" : ""}`
-        : "Connect HashPack to pay",
+      detail: hedera?.payTo
+        ? `x402 HBAR to ${hedera.payTo}${hedera.hcsTopic ? " · HCS" : ""}${hedera.htsToken ? " · HTS run ID" : ""}`
+        : hedera?.x402
+          ? "x402 HBAR from HashPack"
+          : "Connect HashPack to pay",
     },
     {
       name: "Chainlink",
       detail: partners?.chainlink?.confidentialScore
-        ? `CRE scores the time${partners.chainlink.vrf ? " · VRF ties" : ""}`
-        : "CRE workout ingest",
+        ? `CRE holds Health tokens in the TEE. Only the time leaves${partners.chainlink.vrf ? " · VRF ties" : ""}`
+        : "CRE holds credentials in the TEE",
     },
     {
       name: "The Graph",
@@ -36,9 +38,7 @@ export function PartnerStrip({
       name: "World",
       detail: partners?.world?.verified
         ? "Selfie Check verified"
-        : partners?.world?.selfieRequired
-          ? "Selfie Check required to mint"
-          : "Set WORLD_APP_ID to require Selfie Check",
+        : "Selfie Check before the run card",
     },
   ];
 

@@ -14,7 +14,10 @@ export function formatDuration(ms: number): string {
 }
 
 export function formatTinybars(value: number): string {
-  return `${(value / 100_000_000).toFixed(4)} HBAR`;
+  if (!value) return "—";
+  const hbar = value / 100_000_000;
+  if (hbar < 0.001) return `${value.toLocaleString()} tinybar`;
+  return `${hbar.toFixed(4)} HBAR`;
 }
 
 export function formatActivityName(displayName?: string, exerciseType?: string): string {

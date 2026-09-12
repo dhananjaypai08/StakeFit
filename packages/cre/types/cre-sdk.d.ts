@@ -80,10 +80,29 @@ declare module "@chainlink/cre-sdk" {
     EvmClient: new (selector: string) => EvmClient;
   }
 
-  export const cre: Cre;
+  export const cre: Cre & {
+    capabilities: {
+      ConfidentialHTTPClient: new () => {
+        sendRequest(
+          runtime: TeeRuntime,
+          input: { request: HttpRequest },
+        ): { result(): HttpResponse };
+      };
+      CronCapability: new () => {
+        trigger(input: { schedule: string }): Trigger;
+      };
+    };
+  };
+
+  export function handlerInTee<Config = unknown>(
+    trigger: Trigger,
+    fn: (runtime: TeeRuntime<Config>, triggerOutput: unknown) => unknown,
+  ): HandlerEntry;
+
+  export function httpRequest(opts: HttpRequest): HttpRequest;
 
   export interface Runner<Config = unknown> {
-    run(init: (config: Config) => HandlerEntry[]): Promise<void>;
+    run(init: (config: Config) => Record<string, HandlerEntry> | HandlerEntry[]): Promise<void>;
   }
 
   export const Runner: {

@@ -1,17 +1,15 @@
-# Playwright base image ships the browsers and system deps the sandbox needs.
-FROM mcr.microsoft.com/playwright:v1.47.2-jammy
+FROM node:20-bookworm-slim
 
 WORKDIR /app
-
 RUN corepack enable
 
-# Copy the whole monorepo so workspace packages resolve.
 COPY . .
 
-RUN pnpm install --no-frozen-lockfile
-RUN pnpm build
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN pnpm install --frozen-lockfile
 
 ENV PORT=8787
+ENV STAKEFIT_STATE_PATH=/data/stakefit.json
 EXPOSE 8787
 
 CMD ["pnpm", "--filter", "@stakefit/orchestrator", "start"]

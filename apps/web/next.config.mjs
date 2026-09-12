@@ -24,10 +24,14 @@ function rootEnv(prefix) {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  env: rootEnv("NEXT_PUBLIC_"),
-  async rewrites() {
-    const orch = rootEnv().NEXT_PUBLIC_ORCHESTRATOR_URL || process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || "http://localhost:8787";
-    return [{ source: "/orch/:path*", destination: `${orch}/:path*` }];
+  env: {
+    NEXT_PUBLIC_ORCHESTRATOR_URL:
+      process.env.NEXT_PUBLIC_ORCHESTRATOR_URL || rootEnv().NEXT_PUBLIC_ORCHESTRATOR_URL || "",
+    NEXT_PUBLIC_ORCHESTRATOR_WS_URL:
+      process.env.NEXT_PUBLIC_ORCHESTRATOR_WS_URL || rootEnv().NEXT_PUBLIC_ORCHESTRATOR_WS_URL || "",
+    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:
+      process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || rootEnv().NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "",
+    NEXT_PUBLIC_WORLD_APP_ID: process.env.NEXT_PUBLIC_WORLD_APP_ID || rootEnv().NEXT_PUBLIC_WORLD_APP_ID || "",
   },
   transpilePackages: ["@stakefit/shared", "@hashgraph/sdk", "@hashgraph/hedera-wallet-connect", "@worldcoin/idkit", "@worldcoin/idkit-core"],
   webpack: (config, { isServer }) => {

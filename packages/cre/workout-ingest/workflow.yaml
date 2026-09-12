@@ -11,5 +11,5 @@ production-settings:
     workflow-name: "stakefit-workout-ingest-production"
   workflow-artifacts:
     workflow-path: "./workflow.ts"
-    config-path: "./config.staging.json"
+    config-path: "./config.production.json"
     secrets-path: "../secrets.yaml"

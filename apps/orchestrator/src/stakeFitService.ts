@@ -56,6 +56,17 @@ interface Certificate {
   serial: string;
   cid?: string;
   marketId: string;
+  tokenId?: string;
+  txId?: string;
+}
+
+export interface PayoutRecord {
+  userId: string;
+  rank: 1 | 2 | 3;
+  tinybars: number;
+  hederaAccount?: string;
+  paidAt?: number;
+  txId?: string;
 }
 
 export class StakeFitService {
@@ -64,6 +75,7 @@ export class StakeFitService {
   readonly entries = new Map<string, MarketEntry[]>();
   readonly results = new Map<string, StoredResult[]>();
   readonly certificates = new Map<string, Certificate>();
+  readonly payouts = new Map<string, PayoutRecord[]>();
   readonly oauthStates = new Map<string, number>();
   private localMarketSeq = 1;
   private chainTail: Promise<void> = Promise.resolve();
@@ -266,6 +278,8 @@ export class StakeFitService {
       entries: entries.map((entry) => ({
         userId: entry.userId,
         hederaAccount: entry.hederaAccount,
+        paymentRef: entry.userId === viewerId ? entry.paymentRef : undefined,
+        paidAt: entry.userId === viewerId ? entry.paidAt : undefined,
         mine: entry.userId === viewerId,
       })),
       results: results.map((row) => ({
@@ -277,6 +291,71 @@ export class StakeFitService {
       })),
       yours: viewerId ? this.viewerQualify(market, viewerId, catalog?.millimeters ?? 0, catalog?.label ?? "the distance") : undefined,
       partners: this.partners(viewerId ? this.users.get(viewerId) : undefined),
+      noWinner: market.status === "resolved" && !(market.winners?.length),
+      payouts: (this.payouts.get(market.id) ?? []).map((row) => ({
+        userId: row.userId,
+        rank: row.rank,
+        tinybars: row.tinybars,
+        paid: Boolean(row.paidAt),
+        hederaAccount: row.hederaAccount,
+        mine: row.userId === viewerId,
+      })),
+      entered: viewerId ? entries.some((row) => row.userId === viewerId) : false,
+      claim: viewerId ? this.claimView(market.id, viewerId) : undefined,
+      certificate: viewerId
+        ? (() => {
+            const cert = this.getCertificate(viewerId, market.id);
+            if (!cert) return undefined;
+            const tokenId = cert.tokenId || process.env.HTS_CERTIFICATE_TOKEN_ID;
+            return {
+              ...cert,
+              tokenId,
+              hashscan: tokenId
+                ? `https://hashscan.io/testnet/token/${tokenId}/${cert.serial}`
+                : undefined,
+              ipfs: cert.cid ? `https://gateway.pinata.cloud/ipfs/${cert.cid}` : undefined,
+            };
+          })()
+        : undefined,
+      runCard: viewerId ? this.runCard(market, viewerId) : undefined,
+    };
+  }
+
+  private claimView(marketId: string, userId: string) {
+    const payout = (this.payouts.get(marketId) ?? []).find((row) => row.userId === userId);
+    if (!payout) return undefined;
+    return {
+      rank: payout.rank,
+      tinybars: payout.tinybars,
+      paid: Boolean(payout.paidAt),
+      hederaAccount: payout.hederaAccount,
+      txId: payout.txId,
+    };
+  }
+
+  private runCard(market: Market, userId: string) {
+    const result = this.getResult(market.id, userId);
+    const user = this.users.get(userId);
+    if (!result || !user) return undefined;
+    const session = user.exercises.find((row) => row.id === result.exerciseId);
+    const payout = (this.payouts.get(market.id) ?? []).find((row) => row.userId === userId);
+    const cert = this.getCertificate(userId, market.id);
+    return {
+      label: market.label,
+      displayName: session?.displayName ?? "Run",
+      startMs: session?.startMs ?? market.startMs,
+      distanceMillimeters: session?.distanceMillimeters ?? 0,
+      timeMs: result.timeMs,
+      heartRateBpm: session?.heartRateBpm,
+      caloriesKcal: session?.caloriesKcal,
+      rank: payout?.rank ?? market.winners?.find((row) => row.userId === userId)?.rank,
+      serial: cert?.serial,
+      cid: cert?.cid,
+      tokenId: cert?.tokenId || process.env.HTS_CERTIFICATE_TOKEN_ID,
+      hashscan:
+        (cert?.tokenId || process.env.HTS_CERTIFICATE_TOKEN_ID) && cert?.serial
+          ? `https://hashscan.io/testnet/token/${cert.tokenId || process.env.HTS_CERTIFICATE_TOKEN_ID}/${cert.serial}`
+          : undefined,
     };
   }
 
@@ -291,6 +370,7 @@ export class StakeFitService {
       },
       chainlink: {
         confidentialScore: true,
+        holdsSecrets: true,
         vrf: Boolean(this.config.vrfSubscriptionId),
       },
       graph: {
@@ -431,8 +511,24 @@ export class StakeFitService {
   }
 
   startBackgroundSync(intervalMs = 60_000): void {
-    void this.syncEnteredUsers();
-    setInterval(() => void this.syncEnteredUsers(), intervalMs);
+    const tick = async () => {
+      await this.syncEnteredUsers();
+      await this.resolveEndedMarkets();
+    };
+    void tick();
+    setInterval(() => void tick(), intervalMs);
+  }
+
+  async resolveEndedMarkets(): Promise<void> {
+    for (const market of this.markets.values()) {
+      this.refreshStatus(market);
+      if (market.status !== "resolving") continue;
+      try {
+        await this.resolveMarket(market.id);
+      } catch (err) {
+        console.warn("auto-resolve skipped:", market.id, err instanceof Error ? err.message : err);
+      }
+    }
   }
 
   async syncEnteredUsers(): Promise<void> {
@@ -479,24 +575,65 @@ export class StakeFitService {
         sessions: user.exercises,
       });
       if (!scored.ok || scored.timeMs === undefined || !scored.exerciseId) continue;
-      const list = this.results.get(market.id) ?? [];
-      const prev = list.find((row) => row.userId === user.id);
-      if (!prev || scored.timeMs < prev.timeMs) {
-        const next = list.filter((row) => row.userId !== user.id);
-        next.push({ userId: user.id, timeMs: scored.timeMs, exerciseId: scored.exerciseId, scoredBy: "cre" });
-        this.results.set(market.id, next);
-        this.persist();
-        this.enqueueChain(() => this.chainSubmitResult(market, user.id, scored.timeMs, scored.exerciseId));
-        void this.logHcs({
-          type: "stakefit.result",
-          scoredBy: "cre",
-          marketId: market.id,
-          userId: user.id,
-          timeMs: scored.timeMs,
-          exerciseId: scored.exerciseId,
-        });
-      }
+      this.applyCreScore(market.id, user.id, scored.timeMs, scored.exerciseId);
     }
+  }
+
+  applyCreScore(marketId: string, userId: string, timeMs: number, exerciseId: string): boolean {
+    const market = this.getMarket(marketId);
+    if (!market) throw new Error("market not found");
+    this.refreshStatus(market);
+    if (!["open", "grace", "resolving"].includes(market.status)) throw new Error("race is not accepting times");
+    if (!(this.entries.get(marketId) ?? []).some((row) => row.userId === userId)) {
+      throw new Error("user has not entered");
+    }
+    const list = this.results.get(marketId) ?? [];
+    const prev = list.find((row) => row.userId === userId);
+    if (prev && timeMs >= prev.timeMs) return false;
+    const next = list.filter((row) => row.userId !== userId);
+    next.push({ userId, timeMs, exerciseId, scoredBy: "cre" });
+    this.results.set(marketId, next);
+    this.persist();
+    this.enqueueChain(() => this.chainSubmitResult(market, userId, timeMs, exerciseId));
+    void this.logHcs({
+      type: "stakefit.result",
+      scoredBy: "cre",
+      marketId,
+      userId,
+      timeMs,
+      exerciseId,
+    });
+    return true;
+  }
+
+  openWorkoutsForCre() {
+    return [...this.markets.values()]
+      .map((market) => {
+        this.refreshStatus(market);
+        if (!["open", "grace", "resolving"].includes(market.status)) return undefined;
+        const catalog = catalogById(market.distanceId);
+        const day = raceDayBounds(market);
+        return {
+          id: market.id,
+          distanceMillimeters: catalog?.millimeters ?? 0,
+          startMs: day.startMs,
+          endMs: day.endMs,
+          runners: (this.entries.get(market.id) ?? []).map((entry) => {
+            const user = this.users.get(entry.userId);
+            return {
+              userId: entry.userId,
+              sessions: (user?.exercises ?? []).map((session) => ({
+                id: session.id,
+                startMs: session.startMs,
+                endMs: session.endMs,
+                activeDurationMs: session.activeDurationMs,
+                distanceMillimeters: session.distanceMillimeters,
+              })),
+            };
+          }),
+        };
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row));
   }
 
   async resolveMarket(marketId: string, opts?: { admin?: boolean; seed?: bigint }): Promise<Market> {
@@ -518,11 +655,22 @@ export class StakeFitService {
       timeMs: row.timeMs,
       rank: (index + 1) as 1 | 2 | 3,
     }));
+    const split = splitPot(market.potTinybars, market.houseBps, market.winners.length);
+    const amounts = [split.firstTinybars, split.secondTinybars, split.thirdTinybars];
+    this.payouts.set(
+      market.id,
+      market.winners.map((winner, index) => ({
+        userId: winner.userId,
+        rank: winner.rank,
+        tinybars: amounts[index] ?? 0,
+        hederaAccount: winner.hederaAccount || undefined,
+      })),
+    );
     market.status = "resolved";
     market.resolvedAt = Date.now();
     this.persist();
     this.enqueueChain(() => this.chainResolve(market, opts?.admin ?? false));
-    void this.payWinners(market);
+    void this.payMappedWinners(market.id);
     void this.logHcs({
       type: "stakefit.resolve",
       marketId: market.id,
@@ -538,12 +686,48 @@ export class StakeFitService {
     if (user) user.worldNullifier = nullifier;
   }
 
-  recordCertificate(userId: string, marketId: string, serial: string, cid?: string): void {
-    this.certificates.set(`${userId}:${marketId}`, { serial, cid, marketId });
+  recordCertificate(
+    userId: string,
+    marketId: string,
+    serial: string,
+    cid?: string,
+    extra?: { tokenId?: string; txId?: string },
+  ): void {
+    this.certificates.set(`${userId}:${marketId}`, { serial, cid, marketId, ...extra });
   }
 
   getCertificate(userId: string, marketId: string): Certificate | undefined {
     return this.certificates.get(`${userId}:${marketId}`);
+  }
+
+  async claimPayout(marketId: string, userId: string, hederaAccount: string): Promise<PayoutRecord> {
+    const market = this.getMarket(marketId);
+    if (!market) throw new Error("market not found");
+    if (market.status !== "resolved") throw new Error("race is still open");
+    const list = this.payouts.get(marketId) ?? [];
+    const payout = list.find((row) => row.userId === userId);
+    if (!payout) throw new Error("you did not place in the top 3");
+    if (!hederaAccount) throw new Error("connect HashPack first");
+    this.setHederaAccount(userId, hederaAccount);
+    payout.hederaAccount = hederaAccount;
+    if (!payout.paidAt && payout.tinybars > 0) {
+      const txId = await this.sendPayout(payout);
+      payout.paidAt = Date.now();
+      payout.txId = txId;
+      void this.logHcs({
+        type: "stakefit.payout",
+        marketId,
+        userId,
+        rank: payout.rank,
+        tinybars: payout.tinybars,
+        hederaAccount,
+        txId,
+      });
+    } else if (!payout.paidAt) {
+      payout.paidAt = Date.now();
+    }
+    this.persist();
+    return payout;
   }
 
   getResult(marketId: string, userId: string): StoredResult | undefined {
@@ -591,6 +775,8 @@ export class StakeFitService {
           markets: [...this.markets.values()],
           entries: Object.fromEntries(this.entries),
           results: Object.fromEntries(this.results),
+          payouts: Object.fromEntries(this.payouts),
+          certificates: [...this.certificates.entries()],
           users: [...this.users.values()],
         }),
       );
@@ -606,6 +792,8 @@ export class StakeFitService {
         markets?: Market[];
         entries?: Record<string, MarketEntry[]>;
         results?: Record<string, StoredResult[]>;
+        payouts?: Record<string, PayoutRecord[]>;
+        certificates?: Array<[string, Certificate]>;
         users?: StakeUser[];
       };
       this.localMarketSeq = raw.seq ?? 1;
@@ -616,6 +804,8 @@ export class StakeFitService {
       }
       for (const [id, rows] of Object.entries(raw.entries ?? {})) this.entries.set(id, rows);
       for (const [id, rows] of Object.entries(raw.results ?? {})) this.results.set(id, rows);
+      for (const [id, rows] of Object.entries(raw.payouts ?? {})) this.payouts.set(id, rows);
+      for (const [key, cert] of raw.certificates ?? []) this.certificates.set(key, cert);
       for (const user of raw.users ?? []) {
         this.users.set(user.id, { ...user, exercises: user.exercises ?? [] });
       }
@@ -727,21 +917,27 @@ export class StakeFitService {
     await tx.wait();
   }
 
-  private async payWinners(market: Market): Promise<void> {
-    const split = splitPot(market.potTinybars, market.houseBps, market.winners?.length ?? 0);
-    const amounts = [split.firstTinybars, split.secondTinybars, split.thirdTinybars];
-    try {
-      const { loadHederaConfig, hasHederaCredentials, transferTinybars } = await import("@stakefit/hedera");
-      const hedera = loadHederaConfig();
-      if (!hasHederaCredentials(hedera) || !this.config.payToAccount) return;
-      for (const [index, winner] of (market.winners ?? []).entries()) {
-        const tiny = amounts[index] ?? 0;
-        if (!tiny || !winner.hederaAccount) continue;
-        await transferTinybars(hedera, this.config.payToAccount, winner.hederaAccount, tiny);
+  private async payMappedWinners(marketId: string): Promise<void> {
+    for (const payout of this.payouts.get(marketId) ?? []) {
+      if (payout.paidAt || !payout.hederaAccount || !payout.tinybars) continue;
+      try {
+        const txId = await this.sendPayout(payout);
+        payout.paidAt = Date.now();
+        payout.txId = txId;
+      } catch (err) {
+        console.warn("payout held for claim:", payout.userId, err instanceof Error ? err.message : err);
       }
-    } catch {
-      // Demo still shows on-chain resolution even if the merchant account is dry.
     }
+    this.persist();
+  }
+
+  private async sendPayout(payout: PayoutRecord): Promise<string | undefined> {
+    if (!payout.hederaAccount || !payout.tinybars) return undefined;
+    const { loadHederaConfig, hasHederaCredentials, transferTinybars } = await import("@stakefit/hedera");
+    const hedera = loadHederaConfig();
+    if (!hasHederaCredentials(hedera) || !this.config.payToAccount) return "local";
+    await transferTinybars(hedera, this.config.payToAccount, payout.hederaAccount, payout.tinybars);
+    return `hbar:${payout.hederaAccount}:${payout.tinybars}`;
   }
 
 }

@@ -227,6 +227,18 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
     }
   });
 
+  app.post("/markets/:id/claim", async (req, res) => {
+    const user = requireUser(req, res);
+    if (!user) return;
+    const hederaAccount = String(req.body?.hederaAccount ?? user.hederaAccount ?? "");
+    try {
+      const payout = await service.claimPayout(req.params.id, user.id, hederaAccount);
+      res.json({ payout, partners: service.partners(user) });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  });
+
   app.post("/markets/:id/resolve", async (req, res) => {
     const user = userFrom(req);
     if (!service.isAdmin(user) && req.header("x-admin-secret") !== config.adminSecret) {
@@ -316,7 +328,19 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
   app.post("/runs/:id/certificate", mintHandler);
   app.post("/markets/:id/certificate", mintHandler);
 
+  const requireCre = (req: Request, res: Response): boolean => {
+    const secret = config.creIngestSecret;
+    if (!secret) return true;
+    const header = String(req.header("x-cre-secret") ?? "");
+    if (header !== secret) {
+      res.status(401).json({ error: "CRE secret required" });
+      return false;
+    }
+    return true;
+  };
+
   app.get("/cre/workout/:userId", (req, res) => {
+    if (!requireCre(req, res)) return;
     const user = service.getUser(req.params.userId);
     if (!user) {
       res.status(404).json({ error: "user not found" });
@@ -332,6 +356,28 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
         distanceMillimeters: session.distanceMillimeters,
       })),
     });
+  });
+
+  app.get("/cre/open-workouts", (req, res) => {
+    if (!requireCre(req, res)) return;
+    res.json({ markets: service.openWorkoutsForCre() });
+  });
+
+  app.post("/cre/score", (req, res) => {
+    if (!requireCre(req, res)) return;
+    const marketId = String(req.body?.marketId ?? "");
+    const userId = String(req.body?.userId ?? "");
+    const timeMs = Number(req.body?.timeMs ?? 0);
+    const exerciseId = String(req.body?.exerciseId ?? "");
+    if (!marketId || !userId || !exerciseId || !Number.isFinite(timeMs) || timeMs <= 0) {
+      res.status(400).json({ error: "marketId, userId, timeMs, exerciseId required" });
+      return;
+    }
+    try {
+      res.json({ applied: service.applyCreScore(marketId, userId, timeMs, exerciseId) });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
   });
 
   app.get("/cre/vrf-seed", (req, res) => {
@@ -465,16 +511,20 @@ async function mintRunCertificate(user: StakeUser, market: { id: string; distanc
       score: result?.timeMs ?? 0,
       reportCid: cid,
     });
-    service.recordCertificate(user.id, market.id, cert.serial, cid);
+    service.recordCertificate(user.id, market.id, cert.serial, cid, {
+      tokenId: hedera.certificateTokenId,
+      txId: cert.txId,
+    });
     void service.logHcs({
       type: "stakefit.certificate",
       marketId: market.id,
       userId: user.id,
       serial: cert.serial,
       cid,
+      txId: cert.txId,
       worldNullifier: user.worldNullifier,
     });
-    return { serial: cert.serial, tokenId: hedera.certificateTokenId, cid };
+    return { serial: cert.serial, tokenId: hedera.certificateTokenId, cid, txId: cert.txId };
   } finally {
     client.close();
   }

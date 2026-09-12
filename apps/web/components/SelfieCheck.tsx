@@ -31,7 +31,7 @@ export function SelfieCheck({
     setBusy(true);
     setError("");
     try {
-      if (!appId) throw new Error("Set NEXT_PUBLIC_WORLD_APP_ID and WORLD_APP_ID.");
+      if (!appId) throw new Error("Selfie Check is not live on this deploy yet.");
       const rp_context = await api<RpContext>("/world/rp-context");
       const { IDKitRequestWidget, selfieCheckLegacy } = await import("@worldcoin/idkit");
       const host = document.createElement("div");

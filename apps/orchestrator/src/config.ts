@@ -45,6 +45,7 @@ export interface OrchestratorConfig {
   vrfCoordinator?: string;
   vrfSubscriptionId?: string;
   vrfKeyHash?: string;
+  creIngestSecret?: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorConfig {
@@ -72,6 +73,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorCo
     worldRpSigningKey: env.WORLD_RP_SIGNING_KEY || undefined,
     vrfCoordinator: env.VRF_COORDINATOR || undefined,
     vrfSubscriptionId: env.VRF_SUBSCRIPTION_ID || undefined,
-    vrfKeyHash: env.VRF_KEY_HASH || undefined,
+    vrfKeyHash:
+      env.VRF_KEY_HASH ||
+      (env.VRF_COORDINATOR ? "0x787d74caea10b2b357790d5b5247c2f63d1d91572a9846f780606e4d953677ae" : undefined),
+    creIngestSecret: env.CRE_INGEST_SECRET || undefined,
   };
 }

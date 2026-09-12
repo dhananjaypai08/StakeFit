@@ -59,6 +59,7 @@ export default function AppPage() {
   const [graphIntel, setGraphIntel] = useState("");
   const [graphSource, setGraphSource] = useState("");
   const [partners, setPartners] = useState<Parameters<typeof PartnerStrip>[0]["partners"]>();
+  const [raceTab, setRaceTab] = useState<"open" | "resolved">("open");
   const PAGE_SIZE = 8;
 
   async function loadMarkets() {
@@ -220,12 +221,26 @@ export default function AppPage() {
       <section className="page-x w-full space-y-6 pb-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/70">Open now</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/70">Daily</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Races</h2>
             <p className="mt-2 max-w-lg text-sm leading-6 text-white/85">
-              A race is one distance for today. We use your fastest Fitbit time that started today and covered that
-              distance.
+              One distance for the day. Fastest Fitbit time that started today and covered that distance. Resolved
+              races live on their own tab.
             </p>
+            <div className="mt-4 flex gap-2">
+              {(["open", "resolved"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`h-8 rounded-lg px-3 text-sm ${
+                    raceTab === tab ? "bg-white text-ink-950" : "border border-white/[0.1] text-zinc-400"
+                  }`}
+                  onClick={() => setRaceTab(tab)}
+                >
+                  {tab === "open" ? "Open" : "Resolved"}
+                </button>
+              ))}
+            </div>
           </div>
           {isAdmin ? (
             <div className="flex items-center gap-2">
@@ -247,15 +262,19 @@ export default function AppPage() {
           ) : null}
         </div>
 
-        {markets.length === 0 ? (
+        {markets.filter((market) => (raceTab === "resolved" ? market.status === "resolved" : market.status !== "resolved")).length === 0 ? (
           <div className="rounded-xl border border-dashed border-white/[0.08] px-5 py-10 text-center text-sm text-zinc-500">
-            {isAdmin
-              ? "No race yet. Start one so the walks below can count."
-              : "No race is open. Check back after one is started."}
+            {raceTab === "resolved"
+              ? "No resolved race yet."
+              : isAdmin
+                ? "No open race. Start one so today’s walks can count."
+                : "No race is open. Check back after one is started."}
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {markets.map((market) => (
+            {markets
+              .filter((market) => (raceTab === "resolved" ? market.status === "resolved" : market.status !== "resolved"))
+              .map((market) => (
               <Link
                 key={market.id}
                 href={`/markets/${market.id}`}

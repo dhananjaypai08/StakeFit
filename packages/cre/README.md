@@ -1,26 +1,31 @@
 # @stakefit/cre
 
-The StakeFit confidential audit firewall, built as a Chainlink CRE Confidential Workflow.
+Chainlink CRE Confidential Workflows for StakeFit.
 
-## What runs inside the TEE
+## What CRE is for
 
-`src/workflow.ts` registers a confidential handler with `cre.handlerInTee`. Inside the hardware isolated enclave it:
+The enclave **holds credentials**. Google Health / Fitbit refresh and access tokens, plus any scoring secrets, are fetched with `runtime.getSecret` inside the TEE. They are never written to the public race board or to Sepolia.
 
-1. fetches the OpenRouter API key with `runtime.getSecret`,
-2. fetches the confidential severity rubric as a secret,
-3. runs two independent LLM audits over the scan findings,
-4. merges them into an ALLOW, DENY, or MANUAL_REVIEW verdict,
-5. crosses back to the DON with `runtime.usingTheDons`,
-6. delivers the verdict to `AuditRegistry.sol` on Sepolia.
+The only value that leaves the enclave is the **scored time** (`timeMs` + `exerciseId`). That is what the orchestrator submits on-chain and what Hedera pays against.
+
+## Workout ingest
+
+`workout-ingest/workflow.ts` registers `handlerInTee`. Inside the enclave it:
+
+1. loads `GOOGLE_REFRESH_TOKEN` and `GOOGLE_HEALTH_ACCESS_TOKEN` from the Vault DON,
+2. loads any other scoring secret (`OPENROUTER_API_KEY` if a model is used),
+3. reads the runner’s sessions,
+4. keeps the fastest qualifying `activeDuration` for that day’s distance,
+5. returns only `{ timeMs, exerciseId }` to the DON.
+
+Live scoring in the orchestrator uses the same function (`ingestWorkout`) so a demo still works when CRE is not deployed. `pnpm simulate:cre` runs this workflow first.
+
+## Audit firewall
+
+`src/workflow.ts` is the older confidential audit path (OpenRouter rubric + `AuditRegistry` on Sepolia). Simulate still runs it after workout-ingest.
 
 ## Simulate
-
-From the repo root (you must already be logged in with `cre login`):
 
 ```bash
 pnpm simulate:cre
 ```
-
-That is the only simulate command. It loads the root `.env`, maps `DEPLOYER_PRIVATE_KEY` to `CRE_ETH_PRIVATE_KEY`, and runs the `audit-firewall` workflow against the `staging-settings` target.
-
-`ethereum-testnet-sepolia` is already on `cre workflow supported-chains`. You do not need to pick another chain.

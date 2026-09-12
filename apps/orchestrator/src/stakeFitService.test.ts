@@ -106,3 +106,20 @@ test("race explains when there is no session that day and points at the nearest 
   assert.equal(view.yours?.nearest?.name, "Walk");
   assert.equal(view.yours?.nearest?.distanceMillimeters, 1_540_000);
 });
+
+test("resolve with no times reports no winner", async () => {
+  const service = testService();
+  const market = await service.createMarket({
+    distanceId: "50m",
+    startMs: Date.now(),
+    endMs: Date.now() + 60_000,
+    graceSec: 900,
+    hidden: true,
+    houseBps: 1000,
+    entryTinybars: 10_000,
+  });
+  const resolved = await service.resolveMarket(market.id, { admin: true });
+  const view = service.publicView(resolved);
+  assert.equal(view.noWinner, true);
+  assert.equal(view.winners?.length ?? 0, 0);
+});

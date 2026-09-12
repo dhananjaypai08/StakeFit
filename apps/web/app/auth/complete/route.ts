@@ -8,6 +8,7 @@ export function GET(request: Request) {
     next.cookies.set("stakefit_session", session, {
       httpOnly: true,
       sameSite: "lax",
+      secure: url.protocol === "https:",
       path: "/",
       maxAge: 60 * 60 * 24 * 7,
     });

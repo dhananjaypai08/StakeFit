@@ -1,0 +1,8 @@
+{
+  "schedule": "0 0 * * * *",
+  "workoutUrl": "https://REPLACE_ORCHESTRATOR/cre/open-workouts",
+  "scoreUrl": "https://REPLACE_ORCHESTRATOR/cre/score",
+  "distanceMillimeters": 50000,
+  "startMs": 0,
+  "endMs": 4102444800000
+}

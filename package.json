@@ -17,6 +17,7 @@
     "deploy:subgraph": "bash scripts/deploy-subgraph.sh",
     "simulate:cre": "bash scripts/simulate-cre.sh",
     "setup:hedera": "bash scripts/setup-hedera.sh",
+    "start": "pnpm --filter @stakefit/orchestrator start",
     "dev:orchestrator": "pnpm --filter @stakefit/orchestrator dev",
     "dev:web": "pnpm --filter @stakefit/web dev",
     "pay-and-scan": "bash scripts/pay-and-scan.sh",

@@ -30,5 +30,8 @@ export function verifySession(value: string | undefined, secret: string): string
 }
 
 export function sessionCookie(value: string): string {
-  return `stakefit_session=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`;
+  const secure = (process.env.PUBLIC_WEB_URL ?? "").startsWith("https");
+  return `stakefit_session=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${
+    secure ? "; Secure" : ""
+  }`;
 }

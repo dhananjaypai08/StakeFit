@@ -55,7 +55,7 @@ export async function mintCertificate(
   config: HederaConfig,
   tokenId: string,
   metadata: CertificateMetadata,
-): Promise<{ serial: string }> {
+): Promise<{ serial: string; txId: string }> {
   const operatorKey = parsePrivateKey(config.privateKey);
   // HTS metadata is capped at 100 bytes per serial.
   const pointer = (metadata.reportCid ? `ipfs://${metadata.reportCid}` : `stakefit:${metadata.scanId}:${metadata.verdict}`).slice(
@@ -72,5 +72,5 @@ export async function mintCertificate(
   const receipt = await response.getReceipt(client);
   const serial = receipt.serials?.[0];
   if (serial === undefined) throw new Error("mint returned no serial");
-  return { serial: serial.toString() };
+  return { serial: serial.toString(), txId: response.transactionId.toString() };
 }

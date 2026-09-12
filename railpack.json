@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "packages": {
+    "node": "20"
+  },
+  "steps": {
+    "build": {
+      "commands": ["echo skip-frontend-build"]
+    }
+  },
+  "deploy": {
+    "startCommand": "pnpm --filter @stakefit/orchestrator start"
+  }
+}

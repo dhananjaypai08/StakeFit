@@ -243,8 +243,16 @@ cd contracts && forge test --match-contract StakeFitMarketTest
 
 ## Hosted deploy
 
-1. Orchestrator: build `apps/orchestrator/Dockerfile` (Playwright base) on Railway. Copy every backend key from `.env`. Point `GOOGLE_REDIRECT_URI` and `PUBLIC_WEB_URL` at the public URLs, and add those origins / redirect URIs on the GCP OAuth client.
-2. Web: Vercel project = `apps/web`. Set `NEXT_PUBLIC_ORCHESTRATOR_URL`, `NEXT_PUBLIC_ORCHESTRATOR_WS_URL`, and `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
+Orchestrator on Railway (`railway.toml` + `apps/orchestrator/Dockerfile`). Web on Vercel (`vercel.json`). CRE and VRF stay on Chainlink; they are not hosted on Vercel.
+
+1. `railway login` and `vercel login`.
+2. Deploy the orchestrator (`railway up --ci` from the repo root). Add a volume at `/data` so `STAKEFIT_STATE_PATH=/data/stakefit.json` survives restarts.
+3. Copy backend keys from `.env` into Railway. Set `PUBLIC_WEB_URL` to the Vercel URL and `GOOGLE_REDIRECT_URI` to `https://<railway>/auth/google/callback`.
+4. Deploy the web app (`vercel --yes`). Set `NEXT_PUBLIC_ORCHESTRATOR_URL`, `NEXT_PUBLIC_ORCHESTRATOR_WS_URL`, and `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
+5. On the GCP OAuth client add the Railway origin and redirect URI, plus the Vercel origin.
+6. CRE: `cre login`, put the Railway URL into `packages/cre/workout-ingest/config.production.json`, then `cre workflow deploy workout-ingest --target production-settings`. Vault secrets stay in the TEE (`GOOGLE_*`, `CRE_INGEST_SECRET`).
+7. VRF: `pnpm exec bash scripts/setup-vrf.sh`, fund the subscription at [vrf.chain.link](https://vrf.chain.link), paste `VRF_SUBSCRIPTION_ID` into Railway.
+8. World Selfie Check needs `WORLD_APP_ID`, `WORLD_RP_ID`, `WORLD_RP_SIGNING_KEY`, and `NEXT_PUBLIC_WORLD_APP_ID`. Leave them empty only for a first bring-up; the mint path will skip.
 
 ## Monorepo
 

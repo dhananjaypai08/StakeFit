@@ -2,7 +2,6 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Action } from "../../../components/Action";
 import { Breadcrumbs } from "../../../components/Breadcrumbs";
 import { PageHero } from "../../../components/PageHero";
 import { api } from "../../../lib/api";
@@ -11,6 +10,9 @@ import { formatDistance, formatDuration, formatTinybars } from "../../../lib/for
 import { PHOTOS } from "../../../lib/photos";
 import { connectWallet, encodeXPaymentHeader, signScanPayment, type InvoiceRequirements } from "../../../lib/hederaWallet";
 import { PartnerStrip } from "../../../components/PartnerStrip";
+import { Podium } from "../../../components/Podium";
+import { RaceGuide, type GuideStep } from "../../../components/RaceGuide";
+import { RunCard, type RunCardData } from "../../../components/RunCard";
 import { SelfieCheck } from "../../../components/SelfieCheck";
 import { useViewMode } from "../../../lib/viewMode";
 
@@ -32,11 +34,18 @@ interface View {
     nearest?: { startMs: number; name: string; distanceMillimeters: number };
   };
   partners?: {
-    hedera?: { x402?: boolean; hcsTopic?: string; htsToken?: string; payTo?: string };
+    hedera?: { x402?: boolean; hcsTopic?: string; htsToken?: string; payTo?: string; network?: string };
     chainlink?: { confidentialScore?: boolean; vrf?: boolean };
     graph?: { live?: boolean };
     world?: { selfieRequired?: boolean; verified?: boolean };
   };
+  noWinner?: boolean;
+  entered?: boolean;
+  entries?: Array<{ userId: string; hederaAccount?: string; paymentRef?: string; paidAt?: number; mine?: boolean }>;
+  payouts?: Array<{ userId: string; tinybars: number; paid?: boolean; mine?: boolean }>;
+  claim?: { rank: number; tinybars: number; paid: boolean; hederaAccount?: string; txId?: string };
+  certificate?: { serial: string; cid?: string; tokenId?: string; txId?: string; hashscan?: string; ipfs?: string };
+  runCard?: RunCardData;
 }
 
 export default function MarketPage() {
@@ -113,6 +122,22 @@ export default function MarketPage() {
     }
   }
 
+  async function claimPayout() {
+    setBusy("claim");
+    setError("");
+    try {
+      const hederaAccount = user?.hederaAccount || (await connectWallet());
+      await api("/me/hedera", { method: "POST", body: JSON.stringify({ accountId: hederaAccount }) });
+      await api(`/markets/${params.id}/claim`, { method: "POST", body: JSON.stringify({ hederaAccount }) });
+      await refresh();
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function mint() {
     setBusy("mint");
     setError("");
@@ -131,6 +156,124 @@ export default function MarketPage() {
 
   if (!user) return null;
   if (!view) return <p className="text-zinc-500">{error || "Loading…"}</p>;
+  const mineEntry = view.entries?.find((row) => row.mine || row.userId === user.id);
+  const selfieNeeded = Boolean(view.partners?.world?.selfieRequired);
+  const selfieDone = !selfieNeeded || Boolean(view.partners?.world?.verified || user.worldVerified);
+
+  const openSteps: GuideStep[] = [
+    {
+      title: "Pay with HashPack",
+      body: `Send ${formatTinybars(view.entryTinybars)}${view.partners?.hedera?.payTo ? ` to ${view.partners.hedera.payTo}` : ""} on Hedera testnet. HashPack opens so you can sign.`,
+      state: view.entered ? "done" : "active",
+      action: view.entered ? undefined : { label: "Open HashPack and pay", busy: busy === "enter", onClick: () => void enter() },
+      extra: view.entered ? (
+        <p className="mt-2 text-xs text-zinc-400">
+          {mineEntry?.paymentRef ? `Payment ${mineEntry.paymentRef}. ` : "Paid. "}
+          {mineEntry?.hederaAccount ? (
+            <a className="underline-offset-2 hover:underline" href={`https://hashscan.io/testnet/account/${mineEntry.hederaAccount}`} target="_blank" rel="noreferrer">
+              Your account
+            </a>
+          ) : null}
+          {view.partners?.hedera?.payTo ? (
+            <>
+              {" · "}
+              <a className="underline-offset-2 hover:underline" href={`https://hashscan.io/testnet/account/${view.partners.hedera.payTo}`} target="_blank" rel="noreferrer">
+                Pot
+              </a>
+            </>
+          ) : null}
+        </p>
+      ) : user.hederaAccount ? (
+        <p className="mt-2 text-xs text-zinc-500">Wallet {user.hederaAccount}</p>
+      ) : null,
+    },
+    {
+      title: "Sync Fitbit",
+      body: "CRE scores the fastest qualifying time. Health tokens stay in the TEE. Only the time leaves.",
+      state: !view.entered ? "locked" : view.yours?.timeMs != null ? "done" : "active",
+      action:
+        view.entered && view.yours?.timeMs == null
+          ? { label: "Sync Fitbit now", busy: busy === "sync", onClick: () => void syncWorkout() }
+          : undefined,
+    },
+    {
+      title: isAdmin ? "Resolve the day" : "Wait for resolve",
+      body: isAdmin
+        ? "After Fitbit times are in, resolve. Top 3 share the pot."
+        : "Times stay hidden until the day is resolved. Come back for the podium, selfie, and run card.",
+      state: !view.entered ? "locked" : "active",
+      action: isAdmin ? { label: "Resolve this day", busy: busy === "resolve", onClick: () => void resolveHeat() } : undefined,
+    },
+  ];
+
+  const resolvedSteps: GuideStep[] = [
+    {
+      title: "Selfie Check",
+      body: "World proves a live person before you claim HBAR or mint. The photo stays in World App. We only keep the nullifier.",
+      state: selfieDone ? "done" : "active",
+      extra: (
+        <div className="mt-3">
+          <SelfieCheck
+            marketId={view.id}
+            disabled={Boolean(busy) || selfieDone}
+            verified={selfieDone}
+            onDone={async () => {
+              await refresh();
+              await load();
+            }}
+          />
+        </div>
+      ),
+    },
+    ...(view.claim
+      ? [
+          {
+            title: "Claim HBAR",
+            body: view.claim.paid
+              ? `Sent ${formatTinybars(view.claim.tinybars)} to ${view.claim.hederaAccount ?? "your HashPack"}.`
+              : `Connect HashPack to receive ${formatTinybars(view.claim.tinybars)} for P${view.claim.rank}.`,
+            state: !selfieDone && selfieNeeded ? "locked" : view.claim.paid ? "done" : "active",
+            action:
+              view.claim.paid || (!selfieDone && selfieNeeded)
+                ? undefined
+                : { label: "Connect HashPack and claim", busy: busy === "claim", onClick: () => void claimPayout() },
+            extra: view.claim.txId ? (
+              <p className="mt-2 text-xs text-zinc-400">
+                Tx {view.claim.txId}
+              </p>
+            ) : null,
+          } satisfies GuideStep,
+        ]
+      : []),
+    {
+      title: "Mint run card",
+      body: "Soulbound HTS NFT for this run. Metadata points at IPFS (time, nullifier). Not the selfie photo.",
+      state: !selfieDone && selfieNeeded ? "locked" : view.certificate ? "done" : "active",
+      action:
+        view.certificate || (!selfieDone && selfieNeeded)
+          ? undefined
+          : { label: "Mint run card", busy: busy === "mint", onClick: () => void mint() },
+      extra: view.certificate ? (
+        <div className="mt-2 space-y-1 text-xs text-zinc-400">
+          <p>Serial {view.certificate.serial}{view.certificate.tokenId ? ` · ${view.certificate.tokenId}` : ""}</p>
+          {view.certificate.txId ? <p>Tx {view.certificate.txId}</p> : null}
+          {view.certificate.hashscan ? (
+            <a className="underline-offset-2 hover:underline" href={view.certificate.hashscan} target="_blank" rel="noreferrer">
+              Open on HashScan
+            </a>
+          ) : null}
+          {view.certificate.ipfs ? (
+            <>
+              {" · "}
+              <a className="underline-offset-2 hover:underline" href={view.certificate.ipfs} target="_blank" rel="noreferrer">
+                IPFS metadata
+              </a>
+            </>
+          ) : null}
+        </div>
+      ) : null,
+    },
+  ];
 
   return (
     <main>
@@ -149,46 +292,23 @@ export default function MarketPage() {
       </PageHero>
 
       <section className="page-x w-full py-10">
-        {isAdmin ? (
-          <Action disabled={Boolean(busy) || view.status === "resolved"} onClick={() => void resolveHeat()}>
-            {view.status === "resolved" ? "Paid out" : busy === "resolve" ? "Paying out…" : "Pay out this race"}
-          </Action>
+        {view.status === "resolved" ? (
+          <div className="space-y-6">
+            <Podium winners={view.winners ?? []} viewerId={user.id} payouts={view.payouts} />
+            {view.entered && !view.claim && !view.noWinner ? (
+              <p className="text-sm text-zinc-500">You entered. You did not place in the top 3. You can still mint a run card.</p>
+            ) : null}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
+              <RaceGuide steps={resolvedSteps} />
+              {view.runCard ? (
+                <div className={view.certificate ? "" : "opacity-70"}>
+                  <RunCard card={view.runCard} />
+                </div>
+              ) : null}
+            </div>
+          </div>
         ) : (
-          <ol className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">01 · Hedera</p>
-              <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void enter()}>
-                <h2 className="text-base font-medium text-white">{busy === "enter" ? "Paying…" : "Pay to enter"}</h2>
-                <p className="mt-1.5 text-sm leading-6 text-white/85">x402 HBAR from HashPack. Written to HCS.</p>
-              </button>
-            </li>
-            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">02 · Chainlink</p>
-              <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void syncWorkout()}>
-                <h2 className="text-base font-medium text-white">{busy === "sync" ? "Scoring…" : "Sync and score"}</h2>
-                <p className="mt-1.5 text-sm leading-6 text-white/85">Fitbit in, CRE confidential score out.</p>
-              </button>
-            </li>
-            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">03 · World</p>
-              <SelfieCheck
-                marketId={view.id}
-                disabled={Boolean(busy)}
-                verified={view.partners?.world?.verified || user.worldVerified}
-                onDone={async () => {
-                  await refresh();
-                  await load();
-                }}
-              />
-            </li>
-            <li className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-4">
-              <p className="text-xs text-white/60">04 · HTS</p>
-              <button className="mt-1.5 text-left" type="button" disabled={Boolean(busy)} onClick={() => void mint()}>
-                <h2 className="text-base font-medium text-white">{busy === "mint" ? "Minting…" : "Save a certificate"}</h2>
-                <p className="mt-1.5 text-sm leading-6 text-white/85">Soulbound run ID after Selfie Check.</p>
-              </button>
-            </li>
-          </ol>
+          <RaceGuide steps={openSteps} />
         )}
         {error ? <p className="mt-6 text-sm text-red-200">{error}</p> : null}
       </section>
@@ -236,10 +356,8 @@ export default function MarketPage() {
             </tbody>
           </table>
         )}
-        {view.winners?.length ? (
-          <p className="border-t border-white/[0.06] px-5 py-3 text-sm text-zinc-400">
-            Top 3: {view.winners.map((w) => `#${w.rank} ${(w.timeMs / 1000).toFixed(1)}s`).join(" · ")}
-          </p>
+        {view.status === "resolved" && view.noWinner ? (
+          <p className="px-5 py-3 text-sm text-zinc-500">Resolved with no qualifying times.</p>
         ) : null}
       </section>
     </main>
