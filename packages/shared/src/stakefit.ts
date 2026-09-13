@@ -29,14 +29,65 @@ export function civilDate(at = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-/** Inclusive local calendar day used when an admin starts a race. */
-export function localDayBounds(now = Date.now()): { startMs: number; endMs: number } {
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  end.setMilliseconds(-1);
-  return { startMs: start.getTime(), endMs: end.getTime() };
+function zoneParts(at: number, timeZone: string) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date(at))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour: Number(parts.hour),
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+  };
+}
+
+function zonedCivilToUtc(
+  civil: { year: number; month: number; day: number; hour?: number; minute?: number; second?: number },
+  timeZone: string,
+): number {
+  const want = Date.UTC(
+    civil.year,
+    civil.month - 1,
+    civil.day,
+    civil.hour ?? 0,
+    civil.minute ?? 0,
+    civil.second ?? 0,
+  );
+  let utc = want;
+  for (let i = 0; i < 4; i += 1) {
+    const got = zoneParts(utc, timeZone);
+    const gotUtc = Date.UTC(got.year, got.month - 1, got.day, got.hour, got.minute, got.second);
+    utc += want - gotUtc;
+  }
+  return utc;
+}
+
+/** Inclusive calendar day in `timeZone`. Defaults to the host zone. */
+export function localDayBounds(now = Date.now(), timeZone?: string): { startMs: number; endMs: number } {
+  const zone = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const parts = zoneParts(now, zone);
+  const startMs = zonedCivilToUtc({ year: parts.year, month: parts.month, day: parts.day }, zone);
+  const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1));
+  const endMs =
+    zonedCivilToUtc(
+      { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1, day: next.getUTCDate() },
+      zone,
+    ) - 1;
+  return { startMs, endMs };
 }
 
 /** Civil range for Health list filters. `endCivil` is exclusive. */
@@ -49,20 +100,35 @@ export function recentCivilRange(days = 90, now = new Date()): { startCivil: str
 }
 
 const MULTI_DAY_MS = 36 * 60 * 60_000;
+const CIVIL_DAY_MIN_MS = 20 * 60 * 60_000;
+
+/** True when a client window is one calendar day, not a short test span or a multi-week range. */
+export function looksLikeCivilDay(startMs: number, endMs: number): boolean {
+  const span = endMs - startMs;
+  return Number.isFinite(span) && span >= CIVIL_DAY_MIN_MS && span <= MULTI_DAY_MS;
+}
 
 /**
  * A race scores the fastest qualifying session that started on one civil day.
  * Wider stored windows (from older admin creates) snap to that day.
  */
 export function raceDayBounds(
-  market: { startMs: number; endMs: number },
+  market: {
+    startMs: number;
+    endMs: number;
+    graceSec?: number;
+    timeZone?: string;
+    resolvedAt?: number;
+    status?: string;
+  },
   now = Date.now(),
+  timeZone?: string,
 ): { startMs: number; endMs: number } {
-  if (market.endMs - market.startMs <= MULTI_DAY_MS) {
-    return { startMs: market.startMs, endMs: market.endMs };
-  }
-  const anchor = Math.min(market.endMs, Math.max(market.startMs, now));
-  return localDayBounds(anchor);
+  const zone = timeZone?.trim() || market.timeZone;
+  const wide = market.endMs - market.startMs > MULTI_DAY_MS;
+  if (!zone && !wide) return { startMs: market.startMs, endMs: market.endMs };
+  const resolved = Boolean(market.resolvedAt) || market.status === "resolved";
+  return localDayBounds(resolved ? market.startMs : now, zone);
 }
 
 export type MarketStatus = "scheduled" | "open" | "grace" | "resolving" | "resolved";
@@ -84,6 +150,7 @@ export interface Market {
   winners?: Array<{ userId: string; hederaAccount: string; timeMs: number; rank: 1 | 2 | 3 }>;
   createdAt: number;
   resolvedAt?: number;
+  timeZone?: string;
 }
 
 export interface MarketEntry {

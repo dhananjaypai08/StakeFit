@@ -5,11 +5,28 @@ import type { OrchestratorConfig } from "./config";
 import { parseCookies, sessionCookie, signSession, verifySession } from "./sessionAuth";
 import { StakeFitService, type StakeUser } from "./stakeFitService";
 
+function parseTimeZone(raw?: string): string | undefined {
+  const zone = raw?.trim();
+  if (!zone || zone.length > 64) return undefined;
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: zone });
+    return zone;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestTimeZone(req: Request): string | undefined {
+  return parseTimeZone(req.header("x-timezone") ?? undefined);
+}
+
 export function mountStakeFit(app: Express, config: OrchestratorConfig, service: StakeFitService): void {
   const userFrom = (req: Request): StakeUser | undefined => {
     const cookies = parseCookies(req.header("cookie"));
     const userId = verifySession(cookies.stakefit_session, config.sessionSecret);
-    return userId ? service.getUser(userId) : undefined;
+    const user = service.sessionUser(userId);
+    if (user) service.rememberTimeZone(user.id, requestTimeZone(req));
+    return user;
   };
 
   const requireUser = (req: Request, res: Response): StakeUser | undefined => {
@@ -88,7 +105,7 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
       const result = await service.syncExercises(user.id);
       res.json({
         ...result,
-        exercises: service.history(user.id),
+        exercises: service.history(user.id, requestTimeZone(req)),
         lastSyncTime: user.lastSyncTime,
         deviceVersion: user.deviceVersion,
       });
@@ -108,7 +125,11 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
         console.warn("page sync skipped:", err instanceof Error ? err.message : err);
       }
     }
-    res.json({ exercises: service.history(user.id), lastSyncTime: user.lastSyncTime, deviceVersion: user.deviceVersion });
+    res.json({
+      exercises: service.history(user.id, requestTimeZone(req)),
+      lastSyncTime: user.lastSyncTime,
+      deviceVersion: user.deviceVersion,
+    });
   });
 
   app.get("/catalog", (_req, res) => {
@@ -131,19 +152,25 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
     const user = userFrom(req);
     const graph = await queryGraph(service).catch(() => ({ source: "local" as const, intel: "The Graph is unreachable; using the live orchestrator board." }));
     res.json({
-      markets: service.listMarkets().map((market) => service.publicView(market, user?.id)),
+      markets: service.listMarkets().map((market) => service.publicView(market, user?.id, requestTimeZone(req))),
       graph,
       partners: service.partners(user),
     });
   });
 
-  app.get("/markets/:id", (req, res) => {
+  app.get("/markets/:id", async (req, res) => {
+    const user = userFrom(req);
+    if (user) {
+      await service.refreshViewerIfStale(user.id).catch((err) => {
+        console.warn("race sync skipped:", err instanceof Error ? err.message : err);
+      });
+    }
     const market = service.getMarket(req.params.id);
     if (!market) {
       res.status(404).json({ error: "market not found" });
       return;
     }
-    res.json(service.publicView(market, userFrom(req)?.id));
+    res.json(service.publicView(market, user?.id, requestTimeZone(req)));
   });
 
   app.post("/markets", (req, res) => {
@@ -154,6 +181,7 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
     }
     const distanceId = String(req.body?.distanceId ?? "") as DistanceId;
     const now = Date.now();
+    const timeZone = parseTimeZone(typeof req.body?.timeZone === "string" ? req.body.timeZone : undefined) || requestTimeZone(req);
     service
       .createMarket({
         distanceId,
@@ -163,6 +191,7 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
         hidden: Boolean(req.body?.hidden),
         houseBps: Number(req.body?.houseBps ?? 1000),
         entryTinybars: Number(req.body?.entryTinybars ?? config.scanPriceTinybars),
+        timeZone,
       })
       .then((market) => res.json(market))
       .catch((err) => res.status(400).json({ error: (err as Error).message }));
@@ -247,7 +276,7 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
     }
     try {
       const market = await service.resolveMarket(req.params.id, { admin: true });
-      res.json(service.publicView(market, user?.id));
+      res.json(service.publicView(market, user?.id, requestTimeZone(req)));
     } catch (err) {
       res.status(400).json({ error: (err as Error).message });
     }
@@ -388,7 +417,7 @@ export function mountStakeFit(app: Express, config: OrchestratorConfig, service:
 }
 
 async function queryGraph(service: StakeFitService): Promise<{
-  source: "graph" | "local";
+  source: "graph" | "local" | "sepolia";
   intel: string;
   markets?: unknown;
 }> {
@@ -420,6 +449,14 @@ async function queryGraph(service: StakeFitService): Promise<{
     return { source: "local", intel: `Graph error: ${body.errors[0]?.message}`, markets: service.listMarkets() };
   }
   const rows = body.data?.markets ?? [];
+  const live = service.listMarkets();
+  if (rows.length === 0 && live.length) {
+    return {
+      source: "sepolia",
+      intel: `${live.length} races on Sepolia. Graph Studio has not indexed them yet.`,
+      markets: live,
+    };
+  }
   const open = rows.filter((row) => !row.resolved).length;
   const entered = rows.reduce((sum, row) => sum + (row.entries?.length ?? 0), 0);
   const scored = rows.reduce((sum, row) => sum + (row.results?.length ?? 0), 0);
@@ -461,7 +498,7 @@ function publicUser(user: StakeUser, service: StakeFitService) {
     email: user.email,
     name: user.name,
     hederaAccount: user.hederaAccount,
-    connected: Boolean(user.tokens) || Boolean(user.exercises.length),
+    connected: Boolean(service.sessionUser(user.id)),
     lastSyncTime: user.lastSyncTime,
     deviceVersion: user.deviceVersion,
     worldNullifier: user.worldNullifier,

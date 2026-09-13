@@ -4,6 +4,10 @@ const BASE = typeof window === "undefined" ? ORCH_ORIGIN : "/orch";
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (typeof Intl !== "undefined" && !headers.has("X-Timezone")) {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone) headers.set("X-Timezone", timeZone);
+  }
   const res = await fetch(`${BASE}${path}`, { ...init, headers, credentials: "include" });
   const text = await res.text();
   let json: Record<string, unknown> = {};

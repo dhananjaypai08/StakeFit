@@ -21,7 +21,9 @@ export function SignIn() {
         <h1 className="text-4xl font-semibold leading-[1.1] tracking-tight text-white md:text-5xl">
           Sign in to see races
         </h1>
-        <p className="mt-3 text-base text-white/90">Google Health. Fitbit after the phone syncs.</p>
+        <p className="mt-3 text-base text-white/90">
+          Connect Google Health so we can read the Fitbit sessions already on your phone.
+        </p>
         {blocked ? (
           <div className="mt-6 max-w-md rounded-lg border border-amber-200/30 bg-amber-950/40 p-3 text-sm text-amber-50">
             This Google Cloud project is in Testing. Add your Gmail under Audience, Test users, then try again.

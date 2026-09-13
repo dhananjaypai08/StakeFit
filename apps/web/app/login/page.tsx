@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { PageSkeleton } from "../../components/PageSkeleton";
 import { SignIn } from "../../components/SignIn";
 import { useAuth } from "../../lib/auth";
 
@@ -10,11 +11,11 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user) router.replace("/app");
+    if (!loading && user?.connected) router.replace("/app");
   }, [loading, user, router]);
 
-  if (loading || user) {
-    return <div className="grid min-h-screen place-items-center text-zinc-500">Loading…</div>;
+  if (loading || user?.connected) {
+    return <PageSkeleton label={user?.connected ? "Opening races" : "Signing you in"} />;
   }
   return <SignIn />;
 }

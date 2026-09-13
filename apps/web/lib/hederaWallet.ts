@@ -90,11 +90,17 @@ export async function connectWallet(): Promise<string> {
   if (existing) return existing;
 
   const hashpack = connector.extensions.find((ext) => ext.available && /hashpack/i.test(`${ext.name ?? ""} ${ext.id}`));
-  if (hashpack) await connector.connectExtension(hashpack.id);
-  else await connector.openModal();
+  try {
+    if (hashpack) await connector.connectExtension(hashpack.id);
+  } catch (err) {
+    console.warn("HashPack extension connect failed:", err instanceof Error ? err.message : err);
+  }
+  if (!accountIdFromSigners(connector.signers)) {
+    await connector.openModal();
+  }
 
   const connected = accountIdFromSigners(connector.signers);
-  if (!connected) throw new Error("Wallet connected but no Hedera account was returned");
+  if (!connected) throw new Error("HashPack did not return an account. Approve the StakeFit session in the wallet.");
   return connected;
 }
 
@@ -104,12 +110,20 @@ export async function disconnectWallet(): Promise<void> {
 }
 
 export async function signScanPayment(invoice: InvoiceRequirements, payerAccountId: string): Promise<string> {
+  let account = (await connectWallet()) || payerAccountId;
   const connector = await getConnector();
   const { AccountId, Client, Hbar, TransactionId, TransferTransaction } = await import("@hashgraph/sdk");
-  const signer = connector.getSigner(AccountId.fromString(payerAccountId));
+  let signer: HederaSigner;
+  try {
+    signer = connector.getSigner(AccountId.fromString(account));
+  } catch {
+    await connector.disconnectAll().catch(() => undefined);
+    account = await connectWallet();
+    signer = connector.getSigner(AccountId.fromString(account));
+  }
   const amount = BigInt(invoice.amount);
   const tx = new TransferTransaction()
-    .addHbarTransfer(AccountId.fromString(payerAccountId), Hbar.fromTinybars((-amount).toString()))
+    .addHbarTransfer(AccountId.fromString(account), Hbar.fromTinybars((-amount).toString()))
     .addHbarTransfer(AccountId.fromString(invoice.payTo), Hbar.fromTinybars(amount.toString()))
     .setTransactionId(TransactionId.generate(AccountId.fromString(invoice.extra.feePayer)));
 

@@ -31,7 +31,7 @@ export function RaceGuide({ steps }: { steps: GuideStep[] }) {
             <h2 className="mt-1.5 text-base font-medium text-white">{step.title}</h2>
             <p className="mt-1.5 text-sm leading-6 text-white/80">{step.body}</p>
             {step.extra}
-            {step.action && active ? (
+            {step.action && !locked ? (
               <div className="mt-4">
                 <Action disabled={step.action.busy} onClick={step.action.onClick}>
                   {step.action.busy ? "Working…" : step.action.label}

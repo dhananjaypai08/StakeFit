@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { PageSkeleton } from "../components/PageSkeleton";
 import { ProfileMenu } from "../components/ProfileMenu";
 import { useAuth } from "../lib/auth";
 
@@ -16,16 +17,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (loading) return;
-    if (!user && !isPublic) router.replace("/login");
+    if (!user?.connected && !isPublic) router.replace("/login");
   }, [loading, user, isPublic, router]);
 
-  if (loading) {
-    return <div className="grid min-h-screen place-items-center text-zinc-500">Loading…</div>;
-  }
-
-  if (!user && !isPublic) {
-    return <div className="grid min-h-screen place-items-center text-zinc-500">Loading…</div>;
-  }
+  const showApp = Boolean(user?.connected) || isPublic;
+  const body = loading || !showApp ? <PageSkeleton label={loading ? "Signing you in" : "Opening StakeFit"} /> : children;
 
   return (
     <div className="min-h-screen bg-ink-950">
@@ -35,14 +31,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <Link href="/" className="text-[13px] font-semibold tracking-tight text-white">
               StakeFit
             </Link>
-            {user ? (
+            {user?.connected ? (
               <Link className="text-sm text-white/70 hover:text-white" href="/app">
                 Races
               </Link>
             ) : null}
           </div>
           <div className="flex items-center">
-            {user ? (
+            {user?.connected ? (
               <ProfileMenu />
             ) : pathname === "/login" ? (
               <Link className="text-sm text-white/70 hover:text-white" href="/">
@@ -56,7 +52,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      {children}
+      {body}
     </div>
   );
 }

@@ -246,7 +246,7 @@ cd contracts && forge test --match-contract StakeFitMarketTest
 Orchestrator on Railway (`railway.toml` + `apps/orchestrator/Dockerfile`). Web on Vercel (`vercel.json`). CRE and VRF stay on Chainlink; they are not hosted on Vercel.
 
 1. `railway login` and `vercel login`.
-2. Deploy the orchestrator (`railway up --ci` from the repo root). Add a volume at `/data` so `STAKEFIT_STATE_PATH=/data/stakefit.json` survives restarts.
+2. Deploy the orchestrator (`railway up --ci` from the repo root). Races hydrate from Sepolia `StakeFitMarket` and Hedera HCS — do not persist them in a JSON file.
 3. Copy backend keys from `.env` into Railway. Set `PUBLIC_WEB_URL` to the Vercel URL and `GOOGLE_REDIRECT_URI` to `https://<railway>/auth/google/callback`.
 4. Deploy the web app (`vercel --yes`). Set `NEXT_PUBLIC_ORCHESTRATOR_URL`, `NEXT_PUBLIC_ORCHESTRATOR_WS_URL`, and `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`.
 5. On the GCP OAuth client add the Railway origin and redirect URI, plus the Vercel origin.

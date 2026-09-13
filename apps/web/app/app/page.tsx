@@ -117,8 +117,8 @@ export default function AppPage() {
       }
     })();
     const tick = window.setInterval(() => {
-      void load({ quiet: true }).catch(() => undefined);
-    }, 30_000);
+      void load({ sync: true, quiet: true }).catch(() => undefined);
+    }, 20_000);
     return () => window.clearInterval(tick);
   }, [user]);
 
@@ -131,6 +131,7 @@ export default function AppPage() {
         body: JSON.stringify({
           distanceId,
           ...localDayBounds(),
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           graceSec: 900,
           hidden: true,
           houseBps: 1000,
@@ -155,11 +156,15 @@ export default function AppPage() {
     }
   }
 
-  if (!user) return null;
+  if (!user?.connected) return null;
 
-  const listed = workouts;
-  const last = listed[0];
-  const week = listed.filter((row) => row.startMs >= Date.now() - 7 * 24 * 60 * 60_000);
+  const listed = [...workouts].sort((a, b) => {
+    const score = (row: Workout) =>
+      row.qualifiedMarkets.some((market) => market.submitted) ? 2 : row.qualifiedMarkets.some((market) => market.entered) ? 1 : 0;
+    return score(b) - score(a) || b.startMs - a.startMs;
+  });
+  const last = workouts[0];
+  const week = workouts.filter((row) => row.startMs >= Date.now() - 7 * 24 * 60 * 60_000);
   const weekMm = week.reduce((sum, row) => sum + row.distanceMillimeters, 0);
   const weekKcal = week.reduce((sum, row) => sum + (row.caloriesKcal ?? 0), 0);
 
@@ -299,7 +304,7 @@ export default function AppPage() {
                 </div>
                 <div className="mt-5 flex items-center justify-between text-sm">
                   <span className="text-zinc-400">Pot {formatTinybars(market.potTinybars)}</span>
-                  {isAdmin && market.status !== "resolved" ? (
+                  {user.admin && market.status !== "resolved" ? (
                     <Action
                       tone="quiet"
                       onClick={(event) => {
@@ -389,10 +394,25 @@ export default function AppPage() {
                       ))}
                     </tr>
                   ))
-                : listed.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map((row) => (
-                <tr key={row.id}>
+                : listed.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map((row) => {
+                  const counting = row.qualifiedMarkets.find((market) => market.submitted);
+                  const entered = row.qualifiedMarkets.find((market) => market.entered);
+                  return (
+                <tr
+                  key={row.id}
+                  className={counting ? "bg-white/[0.07]" : entered ? "bg-white/[0.03]" : undefined}
+                >
                   <td className="px-4 py-3 text-zinc-400">{new Date(row.startMs).toLocaleString()}</td>
-                  <td className="px-4 py-3">{formatActivityName(row.displayName, row.exerciseType)}</td>
+                  <td className="px-4 py-3">
+                    <span className="flex flex-col gap-1">
+                      <span>{formatActivityName(row.displayName, row.exerciseType)}</span>
+                      {counting ? (
+                        <span className="w-fit rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-ink-950">
+                          On the {counting.label}
+                        </span>
+                      ) : null}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 tabular-nums">{formatDistance(row.distanceMillimeters)}</td>
                   <td className="px-4 py-3 tabular-nums">
                     {row.caloriesKcal ? `${Math.round(row.caloriesKcal)}` : "—"}
@@ -407,11 +427,13 @@ export default function AppPage() {
                         {row.qualifiedMarkets.map((market) => (
                           <Link
                             key={market.marketId}
-                            className="text-zinc-200 underline-offset-2 hover:underline"
+                            className={`underline-offset-2 hover:underline ${
+                              market.submitted ? "font-medium text-white" : "text-zinc-200"
+                            }`}
                             href={`/markets/${market.marketId}`}
                           >
                             {market.label}
-                            {market.submitted ? " · submitted" : market.entered ? " · entered" : ""}
+                            {market.submitted ? " · counting" : market.entered ? " · entered" : ""}
                           </Link>
                         ))}
                       </span>
@@ -420,7 +442,8 @@ export default function AppPage() {
                     )}
                   </td>
                 </tr>
-              ))}
+                  );
+              })}
             </tbody>
           </table>
           <div className="flex items-center justify-between border-t border-white/[0.06] px-4 py-3 text-sm text-zinc-500">

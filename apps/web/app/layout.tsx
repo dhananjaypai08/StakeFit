@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} antialiased`}>
         <AuthProvider>
           <ViewModeProvider>
-            <Suspense fallback={<div className="grid min-h-screen place-items-center text-zinc-500">Loading…</div>}>
+            <Suspense fallback={<div className="min-h-screen bg-ink-950" />}>
               <Shell>{children}</Shell>
             </Suspense>
           </ViewModeProvider>
