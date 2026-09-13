@@ -40,7 +40,6 @@ interface View {
   partners?: {
     hedera?: { x402?: boolean; hcsTopic?: string; htsToken?: string; payTo?: string; network?: string };
     chainlink?: { confidentialScore?: boolean; vrf?: boolean };
-    graph?: { live?: boolean };
     world?: { selfieRequired?: boolean; verified?: boolean };
   };
   noWinner?: boolean;

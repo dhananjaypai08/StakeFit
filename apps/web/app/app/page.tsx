@@ -55,8 +55,6 @@ export default function AppPage() {
   const [fetching, setFetching] = useState(true);
   const [sessionsReady, setSessionsReady] = useState(false);
   const [lastSync, setLastSync] = useState(user?.lastSyncTime);
-  const [graphIntel, setGraphIntel] = useState("");
-  const [graphSource, setGraphSource] = useState("");
   const [partners, setPartners] = useState<Parameters<typeof PartnerStrip>[0]["partners"]>();
   const [raceTab, setRaceTab] = useState<"open" | "resolved">("open");
   const PAGE_SIZE = 8;
@@ -65,15 +63,12 @@ export default function AppPage() {
     const [list, catalog] = await Promise.all([
       api<{
         markets: MarketCard[];
-        graph?: { source?: string; intel?: string };
         partners?: Parameters<typeof PartnerStrip>[0]["partners"];
       }>("/markets"),
       api<{ distances: Distance[] }>("/catalog"),
     ]);
     setMarkets(list.markets);
     setDistances(catalog.distances);
-    if (list.graph?.intel) setGraphIntel(list.graph.intel);
-    if (list.graph?.source) setGraphSource(list.graph.source);
     if (list.partners) setPartners(list.partners);
   }
 
@@ -219,7 +214,7 @@ export default function AppPage() {
         <p className="page-x w-full text-sm text-red-200">{error}</p>
       ) : null}
 
-      <PartnerStrip partners={partners} graphIntel={graphIntel} graphSource={graphSource} />
+      <PartnerStrip partners={partners} />
 
       <section className="page-x w-full space-y-6 pb-8">
         <div className="flex flex-wrap items-end justify-between gap-3">

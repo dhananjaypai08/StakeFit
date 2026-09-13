@@ -31,7 +31,6 @@ flowchart LR
   Orch --> CRE[CRE time]
   Orch --> HCS[HCS trail]
   World[World selfie] --> HTS[HTS run NFT]
-  Sepolia --> Graph[The Graph]
 ```
 
 | Piece | Role |
@@ -40,7 +39,6 @@ flowchart LR
 | Sepolia | Race ledger |
 | Chainlink CRE | Score leaves as time only |
 | World | Live person before claim or mint |
-| The Graph | Indexed view of the ledger |
 
 ## Local
 
