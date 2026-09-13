@@ -22,7 +22,17 @@ function session(partial: Partial<Parameters<typeof qualifySession>[0]>) {
 test("50m qualifies when distance and window match", () => {
   const result = qualifySession(session({}), "50m", window);
   assert.equal(result.ok, true);
-  assert.equal(result.timeMs, 90_000);
+  assert.equal(result.timeMs, 75_000);
+});
+
+test("200m run scores 50m from average pace", () => {
+  const result = qualifySession(
+    session({ activeDurationMs: 62_000, distanceMillimeters: 200_000 }),
+    "50m",
+    window,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.timeMs, 15_500);
 });
 
 test("rejects a session that starts outside the heat", () => {
@@ -47,7 +57,7 @@ test("bestQualifying picks the fastest qualifying time", () => {
   );
   assert.equal(result.ok, true);
   assert.equal(result.exerciseId, "fast");
-  assert.equal(result.timeMs, 70_000);
+  assert.equal(result.timeMs, 43_750);
 });
 
 test("parseDurationMs reads Health API Duration strings", () => {

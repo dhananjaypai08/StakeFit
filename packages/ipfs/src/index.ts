@@ -158,11 +158,20 @@ async function pinToPinata(scanId: string, html: string, json: string, jwt: stri
 
 /** Encode an ipfs CID as an ENS contenthash hex string (ipfs namespace). */
 export async function pinJson(payload: unknown, config: PinnerConfig): Promise<{ cid: string }> {
+  return pinBytes(Buffer.from(JSON.stringify(payload, null, 2)), "run.json", "application/json", config);
+}
+
+export async function pinBytes(
+  bytes: Buffer,
+  filename: string,
+  contentType: string,
+  config: PinnerConfig,
+): Promise<{ cid: string }> {
   const jwt = config.pinataJwt?.trim();
-  if (!jwt) throw new Error("PINATA_JWT is required to pin JSON");
+  if (!jwt) throw new Error("PINATA_JWT is required to pin");
   const form = new FormData();
-  form.append("file", new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }), "run.json");
-  form.append("pinataMetadata", JSON.stringify({ name: "stakefit-run" }));
+  form.append("file", new Blob([bytes], { type: contentType }), filename);
+  form.append("pinataMetadata", JSON.stringify({ name: filename }));
   const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
     method: "POST",
     headers: { Authorization: `Bearer ${jwt}` },

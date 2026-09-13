@@ -21,6 +21,13 @@ const roboto = Roboto({
 export const metadata: Metadata = {
   title: "StakeFit",
   description: "Race a set distance. Fitbit time from Google Health. HBAR entry on Hedera.",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/logo.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/logo.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

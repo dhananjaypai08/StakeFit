@@ -19,6 +19,7 @@ import {
   looksLikeCivilDay,
   marketStatusAt,
   raceDayBounds,
+  scoreDistanceTimeMs,
   splitPot,
   type DistanceId,
   type ExerciseSession,
@@ -449,8 +450,34 @@ export class StakeFitService {
       const exact = user.exercises.find((row) => row.id === exerciseId);
       if (exact) return exact;
     }
-    if (timeMs) return user.exercises.find((row) => row.activeDurationMs === timeMs);
+    if (timeMs) {
+      const exactTime = user.exercises.find((row) => row.activeDurationMs === timeMs);
+      if (exactTime) return exactTime;
+      for (const catalog of DISTANCE_CATALOG) {
+        const paced = user.exercises.find((row) => scoreDistanceTimeMs(row, catalog.millimeters) === timeMs);
+        if (paced) return paced;
+      }
+    }
     return undefined;
+  }
+
+  private scoreReason(
+    session: { displayName?: string; distanceMillimeters?: number; activeDurationMs?: number } | undefined,
+    catalogMm: number,
+    distanceLabel: string,
+    timeMs?: number,
+  ): string {
+    if (!session?.distanceMillimeters || !session.activeDurationMs || !catalogMm || !timeMs) {
+      return `This is the ${distanceLabel} time from your Fitbit session.`;
+    }
+    const sessionM = Math.round(session.distanceMillimeters / 1000);
+    const catalogM = Math.round(catalogMm / 1000);
+    const sessionSec = Math.max(1, Math.round(session.activeDurationMs / 1000));
+    const raceSec = Math.max(1, Math.round(timeMs / 1000));
+    if (session.distanceMillimeters > catalogMm * 1.15) {
+      return `${raceSec}s is ${distanceLabel} at the pace of your ${sessionM} m session (${sessionSec}s). Not the full lap.`;
+    }
+    return `${raceSec}s from your ${sessionM} m ${session.displayName || "session"}.`;
   }
 
   private viewerQualify(
@@ -468,6 +495,7 @@ export class StakeFitService {
     displayName?: string;
     startMs?: number;
     distanceMillimeters?: number;
+    sessionDurationMs?: number;
     nearest?: { startMs: number; name: string; distanceMillimeters: number };
   } {
     const day = raceDayBounds(market, now, timeZone);
@@ -478,16 +506,16 @@ export class StakeFitService {
       (!resultSession || (resultSession.startMs >= day.startMs && resultSession.startMs <= day.endMs));
     if (result && resultOnDay) {
       const session = resultSession;
+      const paced = session && needMm ? scoreDistanceTimeMs(session, needMm) : 0;
       return {
         status: "counted",
-        note: this.hasEntered(market.id, viewerId)
-          ? "This Fitbit session is the one on the race."
-          : "Pay to put this time on the race.",
-        timeMs: result.timeMs,
+        note: this.scoreReason(session, needMm, distanceLabel, paced || result.timeMs),
+        timeMs: paced || result.timeMs,
         exerciseId: result.exerciseId,
         displayName: session?.displayName,
         startMs: session?.startMs,
         distanceMillimeters: session?.distanceMillimeters,
+        sessionDurationMs: session?.activeDurationMs,
       };
     }
     const user = this.users.get(viewerId);
@@ -497,17 +525,20 @@ export class StakeFitService {
     const inDay = user.exercises.filter((session) => session.startMs >= day.startMs && session.startMs <= day.endMs);
     const covered = inDay.filter((session) => session.distanceMillimeters >= needMm && session.activeDurationMs > 0);
     if (covered.length) {
-      const best = covered.reduce((a, b) => (a.activeDurationMs < b.activeDurationMs ? a : b));
+      const best = covered.reduce((a, b) => {
+        const aTime = scoreDistanceTimeMs(a, needMm);
+        const bTime = scoreDistanceTimeMs(b, needMm);
+        return aTime > 0 && (bTime <= 0 || aTime < bTime) ? a : b;
+      });
       return {
         status: "ready",
-        note: this.hasEntered(market.id, viewerId)
-          ? "This Fitbit session is the one on the race."
-          : "Pay to put this time on the race.",
-        timeMs: best.activeDurationMs,
+        note: this.scoreReason(best, needMm, distanceLabel, scoreDistanceTimeMs(best, needMm)),
+        timeMs: scoreDistanceTimeMs(best, needMm),
         exerciseId: best.id,
         displayName: best.displayName,
         startMs: best.startMs,
         distanceMillimeters: best.distanceMillimeters,
+        sessionDurationMs: best.activeDurationMs,
       };
     }
     if (inDay.length) {

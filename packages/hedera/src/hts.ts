@@ -39,16 +39,18 @@ export async function createSoulboundToken(
 }
 
 export interface CertificateMetadata {
-  scanId: string;
-  target: string;
-  verdict: string;
-  score: number;
+  scanId?: string;
+  target?: string;
+  verdict?: string;
+  score?: number;
   reportCid?: string;
+  /** Human-readable run summary used when IPFS is unavailable. Max 100 bytes on HTS. */
+  memo?: string;
 }
 
 /**
- * Mint one certificate NFT. The on-chain metadata references the IPFS CID of the
- * report so the certificate resolves to the exact audit it attests to.
+ * Mint one run NFT. On-chain metadata is HIP-412 `ipfs://CID` when pinned,
+ * otherwise a short StakeFit run memo.
  */
 export async function mintCertificate(
   client: Client,
@@ -57,11 +59,11 @@ export async function mintCertificate(
   metadata: CertificateMetadata,
 ): Promise<{ serial: string; txId: string }> {
   const operatorKey = parsePrivateKey(config.privateKey);
-  // HTS metadata is capped at 100 bytes per serial.
-  const pointer = (metadata.reportCid ? `ipfs://${metadata.reportCid}` : `stakefit:${metadata.scanId}:${metadata.verdict}`).slice(
-    0,
-    100,
-  );
+  const pointer = (
+    metadata.reportCid
+      ? `ipfs://${metadata.reportCid}`
+      : metadata.memo || `StakeFit ${metadata.target ?? "run"} ${metadata.score ?? ""}`.trim()
+  ).slice(0, 100);
   const tx = await new TokenMintTransaction()
     .setTokenId(tokenId)
     .addMetadata(Buffer.from(pointer))

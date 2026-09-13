@@ -84,10 +84,10 @@ export async function restoreWalletAccount(): Promise<string | null> {
   }
 }
 
-export async function connectWallet(): Promise<string> {
+export async function connectWallet(opts?: { prompt?: boolean }): Promise<string> {
   const connector = await getConnector();
   const existing = accountIdFromSigners(connector.signers);
-  if (existing) return existing;
+  if (existing && !opts?.prompt) return existing;
 
   const hashpack = connector.extensions.find((ext) => ext.available && /hashpack/i.test(`${ext.name ?? ""} ${ext.id}`));
   try {
@@ -95,7 +95,7 @@ export async function connectWallet(): Promise<string> {
   } catch (err) {
     console.warn("HashPack extension connect failed:", err instanceof Error ? err.message : err);
   }
-  if (!accountIdFromSigners(connector.signers)) {
+  if (opts?.prompt || !accountIdFromSigners(connector.signers)) {
     await connector.openModal();
   }
 

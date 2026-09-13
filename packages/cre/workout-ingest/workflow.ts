@@ -62,8 +62,12 @@ const onIngest = (runtime: TeeRuntime<WorkflowConfig>, _trigger: unknown): { pos
       for (const session of runner.sessions) {
         if (session.startMs < market.startMs || session.startMs > market.endMs) continue;
         if (session.distanceMillimeters < market.distanceMillimeters) continue;
-        if (!best.exerciseId || session.activeDurationMs < best.timeMs) {
-          best = { timeMs: session.activeDurationMs, exerciseId: session.id };
+        const timeMs = Math.max(
+          1,
+          Math.round((session.activeDurationMs * market.distanceMillimeters) / session.distanceMillimeters),
+        );
+        if (!best.exerciseId || timeMs < best.timeMs) {
+          best = { timeMs, exerciseId: session.id };
         }
       }
       if (!best.exerciseId || !runtime.config.scoreUrl) continue;

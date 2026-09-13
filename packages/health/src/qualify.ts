@@ -1,5 +1,6 @@
 import {
   catalogById,
+  scoreDistanceTimeMs,
   type DistanceId,
   type ExerciseSession,
   type QualifyingResult,
@@ -7,7 +8,7 @@ import {
 
 /**
  * A session qualifies when it starts inside the heat window and covers at least
- * the catalog distance. Score is active duration (paused time excluded).
+ * the catalog distance. Score is pace applied to that distance, not the full lap.
  */
 export function qualifySession(
   session: ExerciseSession,
@@ -25,10 +26,11 @@ export function qualifySession(
       reason: `distance ${session.distanceMillimeters}mm is short of ${catalog.millimeters}mm`,
     };
   }
-  if (session.activeDurationMs <= 0) {
+  const timeMs = scoreDistanceTimeMs(session, catalog.millimeters);
+  if (timeMs <= 0) {
     return { ok: false, reason: "session has no active duration" };
   }
-  return { ok: true, timeMs: session.activeDurationMs, exerciseId: session.id };
+  return { ok: true, timeMs, exerciseId: session.id };
 }
 
 /** Best (lowest) qualifying time in the window. */

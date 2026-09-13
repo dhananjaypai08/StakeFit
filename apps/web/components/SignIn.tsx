@@ -17,7 +17,7 @@ export function SignIn() {
         className="absolute inset-0 h-full w-full object-cover object-top"
       />
       <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/60 to-black/25" />
-      <div className="page-x relative flex min-h-screen flex-col justify-end pb-12 pt-24">
+      <div className="page-x relative flex min-h-[calc(100vh-3.5rem)] flex-col justify-end pb-12 pt-8">
         <h1 className="text-4xl font-semibold leading-[1.1] tracking-tight text-white md:text-5xl">
           Sign in to see races
         </h1>

@@ -3,12 +3,11 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Action } from "../../../components/Action";
-import { Breadcrumbs } from "../../../components/Breadcrumbs";
 import { PageHero } from "../../../components/PageHero";
 import { PageSkeleton } from "../../../components/PageSkeleton";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
-import { formatActivityName, formatDuration, formatTinybars } from "../../../lib/format";
+import { formatActivityName, formatDistance, formatDuration, formatTinybars } from "../../../lib/format";
 import { PHOTOS } from "../../../lib/photos";
 import { connectWallet, encodeXPaymentHeader, signScanPayment, type InvoiceRequirements } from "../../../lib/hederaWallet";
 import { Podium } from "../../../components/Podium";
@@ -35,6 +34,7 @@ interface View {
     displayName?: string;
     startMs?: number;
     distanceMillimeters?: number;
+    sessionDurationMs?: number;
     nearest?: { startMs: number; name: string; distanceMillimeters: number };
   };
   partners?: {
@@ -132,7 +132,7 @@ export default function MarketPage() {
     setBusy("claim");
     setError("");
     try {
-      const hederaAccount = await connectWallet();
+      const hederaAccount = await connectWallet({ prompt: true });
       await api("/me/hedera", { method: "POST", body: JSON.stringify({ accountId: hederaAccount }) });
       await api(`/markets/${params.id}/claim`, { method: "POST", body: JSON.stringify({ hederaAccount }) });
       await refresh();
@@ -162,47 +162,19 @@ export default function MarketPage() {
 
   if (!user) return null;
   if (!view) return <PageSkeleton label={error || "Pulling this race"} />;
-  const mineEntry = view.entries?.find((row) => row.mine || row.userId === user.id);
   const selfieNeeded = Boolean(view.partners?.world?.selfieRequired);
   const selfieDone = !selfieNeeded || Boolean(view.partners?.world?.verified || user.worldVerified);
 
   const openSteps: GuideStep[] = [
     {
-      title: "Pay with HashPack",
-      body: view.entered
-        ? `Paid ${formatTinybars(view.entryTinybars)} into the pot.`
-        : `Pay ${formatTinybars(view.entryTinybars)} from HashPack. That is HBAR, Hedera's coin.`,
+      title: "Pay to enter",
+      body: view.entered ? `Paid ${formatTinybars(view.entryTinybars)}.` : `Pay ${formatTinybars(view.entryTinybars)} with HashPack.`,
       state: view.entered ? "done" : "active",
-      action: view.entered ? undefined : { label: "Open HashPack and pay", busy: busy === "enter", onClick: () => void enter() },
-      extra: view.entered ? (
-        <p className="mt-2 text-xs text-zinc-400">
-          {mineEntry?.paymentRef ? `Payment ${mineEntry.paymentRef}. ` : "Paid. "}
-          {mineEntry?.hederaAccount ? (
-            <a className="underline-offset-2 hover:underline" href={`https://hashscan.io/testnet/account/${mineEntry.hederaAccount}`} target="_blank" rel="noreferrer">
-              Your account
-            </a>
-          ) : null}
-          {view.partners?.hedera?.payTo ? (
-            <>
-              {" · "}
-              <a className="underline-offset-2 hover:underline" href={`https://hashscan.io/testnet/account/${view.partners.hedera.payTo}`} target="_blank" rel="noreferrer">
-                Pot
-              </a>
-            </>
-          ) : null}
-        </p>
-      ) : user.hederaAccount ? (
-        <p className="mt-2 text-xs text-zinc-500">Wallet {user.hederaAccount}</p>
-      ) : null,
+      action: view.entered ? undefined : { label: "Open HashPack", busy: busy === "enter", onClick: () => void enter() },
     },
     {
       title: "Fitbit time",
-      body:
-        view.yours?.timeMs != null
-          ? "This Fitbit session is the one on the race."
-          : view.entered
-            ? "Watching Fitbit for a session that started today and covered this distance."
-            : "Pay first. We then pick the fastest qualifying Fitbit session automatically.",
+      body: view.yours?.timeMs != null ? undefined : "Watching Fitbit for a session that covered this distance today.",
       state: !view.entered ? "locked" : view.yours?.timeMs != null ? "done" : "active",
       extra:
         view.entered && view.yours?.timeMs == null ? (
@@ -213,172 +185,160 @@ export default function MarketPage() {
         ) : null,
     },
     {
-      title: canResolve ? "Resolve the day" : "Wait for resolve",
-      body: canResolve
-        ? "Close this race whenever you want. No entries or times is fine — it just resolves with no winner."
-        : "Times stay hidden until the day is resolved. Come back for the podium, selfie, and run card.",
-      state: canResolve ? "active" : view.entered ? "active" : "locked",
+      title: canResolve ? "Resolve" : "Waiting to resolve",
+      state: !view.entered ? "locked" : canResolve ? "active" : "locked",
       action: canResolve
-        ? { label: "Resolve this day", busy: busy === "resolve", onClick: () => void resolveHeat() }
+        ? { label: "Resolve race", busy: busy === "resolve", onClick: () => void resolveHeat() }
         : undefined,
     },
   ];
 
   const resolvedSteps: GuideStep[] = [
-    {
-      title: "Selfie Check",
-      body: "World proves a live person before you claim HBAR or mint. The photo stays in World App. We only keep the nullifier.",
-      state: selfieDone ? "done" : "active",
-      extra: (
-        <div className="mt-3">
-          <SelfieCheck
-            marketId={view.id}
-            disabled={Boolean(busy) || selfieDone}
-            verified={selfieDone}
-            onDone={async () => {
-              await refresh();
-              await load();
-            }}
-          />
-        </div>
-      ),
-    },
+    ...(selfieNeeded
+      ? [
+          {
+            title: "Selfie Check",
+            body: selfieDone ? undefined : "Confirm a live person, then claim and mint.",
+            state: selfieDone ? "done" : "active",
+            extra: (
+              <SelfieCheck
+                marketId={view.id}
+                disabled={Boolean(busy) || selfieDone}
+                verified={selfieDone}
+                onDone={async () => {
+                  await refresh();
+                  await load();
+                }}
+              />
+            ),
+          } satisfies GuideStep,
+        ]
+      : []),
     ...(view.claim
       ? [
           {
             title: "Claim HBAR",
             body: view.claim.paid
-              ? `Sent ${formatTinybars(view.claim.tinybars)} to ${view.claim.hederaAccount ?? "your HashPack"}.`
-              : `Connect HashPack to receive ${formatTinybars(view.claim.tinybars)} for P${view.claim.rank}.`,
+              ? `Sent ${formatTinybars(view.claim.tinybars)}.`
+              : `P${view.claim.rank} · ${formatTinybars(view.claim.tinybars)}`,
             state: !selfieDone && selfieNeeded ? "locked" : view.claim.paid ? "done" : "active",
             action:
               view.claim.paid || (!selfieDone && selfieNeeded)
                 ? undefined
-                : { label: "Connect HashPack and claim", busy: busy === "claim", onClick: () => void claimPayout() },
-            extra: view.claim.txId ? (
-              <p className="mt-2 text-xs text-zinc-400">
-                Tx {view.claim.txId}
-              </p>
-            ) : null,
+                : { label: "Open HashPack and claim", busy: busy === "claim", onClick: () => void claimPayout() },
           } satisfies GuideStep,
         ]
       : []),
     {
       title: "Mint run card",
-      body: "Soulbound HTS NFT for this run. Metadata points at IPFS (time, nullifier). Not the selfie photo.",
+      body: view.certificate ? `Serial ${view.certificate.serial}` : "Soulbound run NFT for this time.",
       state: !selfieDone && selfieNeeded ? "locked" : view.certificate ? "done" : "active",
       action:
         view.certificate || (!selfieDone && selfieNeeded)
           ? undefined
           : { label: "Mint run card", busy: busy === "mint", onClick: () => void mint() },
-      extra: view.certificate ? (
-        <div className="mt-2 space-y-1 text-xs text-zinc-400">
-          <p>Serial {view.certificate.serial}{view.certificate.tokenId ? ` · ${view.certificate.tokenId}` : ""}</p>
-          {view.certificate.txId ? <p>Tx {view.certificate.txId}</p> : null}
-          {view.certificate.hashscan ? (
-            <a className="underline-offset-2 hover:underline" href={view.certificate.hashscan} target="_blank" rel="noreferrer">
-              Open on HashScan
-            </a>
-          ) : null}
-          {view.certificate.ipfs ? (
-            <>
-              {" · "}
-              <a className="underline-offset-2 hover:underline" href={view.certificate.ipfs} target="_blank" rel="noreferrer">
-                IPFS metadata
-              </a>
-            </>
-          ) : null}
-        </div>
+      extra: view.certificate?.hashscan ? (
+        <a className="mt-2 inline-block text-xs text-white/60 underline-offset-2 hover:underline" href={view.certificate.hashscan} target="_blank" rel="noreferrer">
+          Open on HashScan
+        </a>
       ) : null,
     },
   ];
 
   return (
     <main>
-      <PageHero
-        src={PHOTOS.track}
-        alt=""
-        eyebrow={view.yours?.timeMs != null ? `${view.label} race` : "Race"}
-        title={view.yours?.timeMs != null ? formatDuration(view.yours.timeMs) : view.label}
-      >
+      <PageHero src={PHOTOS.start} alt="" focus="50% 62%" eyebrow="Race" title={view.label}>
         {view.yours?.timeMs != null ? (
-          <p className="mt-3 max-w-xl text-base text-white/90">
-            Your time
-            {view.yours.displayName ? ` · ${formatActivityName(view.yours.displayName)}` : ""}
-            {view.yours.startMs ? ` · ${new Date(view.yours.startMs).toLocaleString()}` : ""}
-          </p>
+          <>
+            <p className="mt-3 text-4xl font-semibold tabular-nums tracking-tight text-white">
+              {formatDuration(view.yours.timeMs)}
+            </p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-white/75">{view.yours.note || scoreNote(view)}</p>
+          </>
         ) : (
-          <p className="mt-4 max-w-xl text-base leading-7 text-white/90">
-            Fastest Fitbit session that started today and covered this distance. Entry {formatTinybars(view.entryTinybars)}.
-            {view.hidden ? " Other times stay hidden until resolve." : ""}
+          <p className="mt-3 max-w-xl text-sm text-white/75">
+            Fastest pace today over {view.label}. Entry {formatTinybars(view.entryTinybars)}.
           </p>
         )}
-        <p className="mt-3 text-xs text-white/55">Scored privately. Only the time leaves.</p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <Breadcrumbs items={[{ href: "/", label: "Home" }, { href: "/app", label: "Races" }, { label: view.label }]} />
-          {canResolve && view.status !== "resolved" ? (
+        {canResolve && view.status !== "resolved" ? (
+          <div className="mt-4">
             <Action tone="quiet" disabled={busy === "resolve"} onClick={() => void resolveHeat()}>
               {busy === "resolve" ? "Resolving…" : "Resolve race"}
             </Action>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </PageHero>
 
-      <section className="page-x w-full py-10">
+      <section className="page-x w-full space-y-4 py-6">
         {view.status === "resolved" ? (
-          <div className="space-y-6">
+          <>
             <Podium winners={view.winners ?? []} viewerId={user.id} payouts={view.payouts} />
             {view.entered && !view.claim && !view.noWinner ? (
-              <p className="text-sm text-zinc-500">You entered. You did not place in the top 3. You can still mint a run card.</p>
+              <p className="text-sm text-zinc-500">You entered. You did not place. You can still mint a run card.</p>
             ) : null}
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
-              <RaceGuide steps={resolvedSteps} />
+            <div className="grid items-stretch gap-3 lg:grid-cols-2">
+              <div className="min-h-[16rem]">
+                <RaceGuide steps={resolvedSteps} />
+              </div>
               {view.runCard ? (
-                <div className={view.certificate ? "" : "opacity-70"}>
+                <div className={view.certificate ? "min-h-[16rem]" : "min-h-[16rem] opacity-80"}>
                   <RunCard card={view.runCard} />
                 </div>
               ) : null}
             </div>
-          </div>
+          </>
         ) : (
           <RaceGuide steps={openSteps} />
         )}
-        {error ? <p className="mt-6 text-sm text-red-200">{error}</p> : null}
-      </section>
-
-      <section className="page-x w-full pb-14">
-        <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Runners</p>
-        {view.results.length === 0 ? (
-          <p className="mt-4 text-sm text-zinc-500">
-            {view.entered ? "Your time will land here as soon as Fitbit has a qualifying session." : "Pay to put a time on this race."}
-          </p>
-        ) : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {view.status !== "resolved" && view.results.length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2">
             {view.results.map((row) => {
               const mine = row.userId === user.id;
               return (
                 <div
                   key={row.userId}
-                  className={`rounded-2xl border px-5 py-5 ${
-                    mine ? "border-white/30 bg-white/[0.07]" : "border-white/[0.08] bg-ink-900"
+                  className={`rounded-xl border px-4 py-3 ${
+                    mine ? "border-white/25 bg-white/[0.06]" : "border-white/[0.08] bg-ink-900"
                   }`}
                 >
-                  <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">{mine ? "You" : "Runner"}</p>
-                  <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">
+                  <p className="text-[11px] uppercase tracking-[0.14em] text-zinc-500">{mine ? "You" : "Runner"}</p>
+                  <p className="mt-1 text-2xl font-semibold tabular-nums">
                     {row.hidden ? "Hidden" : row.timeMs != null ? formatDuration(row.timeMs) : "—"}
                   </p>
-                  {mine && view.yours?.displayName ? (
-                    <p className="mt-2 text-sm text-white/70">{formatActivityName(view.yours.displayName)}</p>
-                  ) : null}
+                  {mine && view.yours?.note ? <p className="mt-1 text-sm text-white/65">{view.yours.note}</p> : null}
                 </div>
               );
             })}
           </div>
-        )}
-        {view.status === "resolved" && view.noWinner ? (
-          <p className="mt-4 text-sm text-zinc-500">Resolved with no qualifying times.</p>
         ) : null}
+        {view.status === "resolved" && view.noWinner ? (
+          <p className="text-sm text-zinc-500">Resolved with no qualifying times.</p>
+        ) : null}
+        {error ? <p className="text-sm text-red-200">{error}</p> : null}
       </section>
     </main>
   );
+}
+
+function scoreNote(view: View): string {
+  const yours = view.yours;
+  if (!yours?.timeMs) return "";
+  const activity = yours.displayName ? formatActivityName(yours.displayName) : "Fitbit session";
+  const when = yours.startMs ? new Date(yours.startMs).toLocaleString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+  const ran = yours.distanceMillimeters ? formatDistance(yours.distanceMillimeters) : "";
+  const full = yours.sessionDurationMs ? formatDuration(yours.sessionDurationMs) : "";
+  if (yours.distanceMillimeters && yours.distanceMillimeters > 0 && ran && ran !== view.label.replace("metres", "m").replace("kilometres", "km")) {
+    const longer = yours.distanceMillimeters > (catalogMeters(view.label) * 1000 * 1.15 || yours.distanceMillimeters);
+    if (longer && full) {
+      return `From your ${ran} ${activity.toLowerCase()}${when ? ` at ${when}` : ""}. That run was ${full}; this is the same pace over ${view.label}.`;
+    }
+  }
+  return `From your ${activity.toLowerCase()}${when ? ` at ${when}` : ""}.`;
+}
+
+function catalogMeters(label: string): number {
+  const match = label.match(/([\d.]+)\s*(kilo)?metr/i);
+  if (!match) return 0;
+  const n = Number(match[1]);
+  return match[2] ? n * 1000 : n;
 }

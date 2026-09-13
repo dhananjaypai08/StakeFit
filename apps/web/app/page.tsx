@@ -30,7 +30,7 @@ export default function HomePage() {
             className="absolute inset-0 h-full w-full object-cover object-top"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/45 to-black/10" />
-          <div className="page-x relative flex h-full flex-col justify-end pb-10 pt-24">
+          <div className="page-x relative flex h-full flex-col justify-end pb-10 pt-8">
             <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight text-white md:text-6xl">
               Race a set distance.
               <br />

@@ -508,9 +508,19 @@ function publicUser(user: StakeUser, service: StakeFitService) {
   };
 }
 
+function compactDuration(ms?: number): string {
+  if (ms == null) return "";
+  const sec = Math.max(0, Math.round(ms / 1000));
+  const min = Math.floor(sec / 60);
+  return min === 0 ? `${sec}s` : `${min}:${String(sec % 60).padStart(2, "0")}`;
+}
+
 async function mintRunCertificate(user: StakeUser, market: { id: string; distanceId: string; label: string }, service: StakeFitService) {
   const { mintCertificate, hasHederaCredentials, loadHederaConfig, makeClient } = await import("@stakefit/hedera");
-  const { pinJson } = await import("@stakefit/ipfs");
+  const { pinJson, pinBytes } = await import("@stakefit/ipfs");
+  const { readFile } = await import("node:fs/promises");
+  const { existsSync } = await import("node:fs");
+  const path = await import("node:path");
   const hedera = loadHederaConfig();
   if (!hasHederaCredentials(hedera) || !hedera.certificateTokenId) {
     const serial = `local-${Date.now()}`;
@@ -518,22 +528,54 @@ async function mintRunCertificate(user: StakeUser, market: { id: string; distanc
     return { serial, skipped: true };
   }
   const result = service.getResult(market.id, user.id);
+  const session = user.exercises.find((row) => row.id === result?.exerciseId);
+  const when = session?.startMs ? new Date(session.startMs).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const timeLabel = compactDuration(result?.timeMs);
+  const sourceMeters = session ? Math.round(session.distanceMillimeters / 1000) : undefined;
+  const memo = `StakeFit ${market.label} ${timeLabel} ${when} ${user.hederaAccount ?? ""}`
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
   let cid: string | undefined;
   try {
+    const jwt = process.env.PINATA_JWT;
+    const art = [
+      path.join(process.cwd(), "apps/orchestrator/assets/run-nft.png"),
+      path.join(process.cwd(), "apps/web/public/nft.png"),
+    ].find((file) => existsSync(file));
+    let image = "ipfs://";
+    if (jwt && art) {
+      const pinned = await pinBytes(await readFile(art), "stakefit-run.png", "image/png", { pinataJwt: jwt });
+      image = `ipfs://${pinned.cid}`;
+    }
     const pin = await pinJson(
       {
-        type: "stakefit-run",
-        marketId: market.id,
-        distance: market.distanceId,
-        label: market.label,
-        timeMs: result?.timeMs,
-        exerciseId: result?.exerciseId,
-        lastSyncTime: user.lastSyncTime,
-        worldNullifier: user.worldNullifier,
-        hederaAccount: user.hederaAccount,
-        email: user.email,
+        name: `StakeFit · ${market.label}`,
+        creator: "StakeFit",
+        description: sourceMeters
+          ? `${market.label} from a ${sourceMeters} m Fitbit run on ${when}. Time ${timeLabel}.`
+          : `${market.label} run on ${when}. Time ${timeLabel}.`,
+        image,
+        type: "image/png",
+        attributes: [
+          { trait_type: "Race", value: market.label },
+          { trait_type: "Time", value: timeLabel },
+          ...(sourceMeters ? [{ trait_type: "Source run", value: `${sourceMeters} m` }] : []),
+          { trait_type: "Date", value: when },
+          { trait_type: "Account", value: user.hederaAccount ?? "" },
+          { trait_type: "Exercise", value: session?.displayName ?? "Run" },
+        ],
+        properties: {
+          marketId: market.id,
+          distanceId: market.distanceId,
+          timeMs: result?.timeMs,
+          exerciseId: result?.exerciseId,
+          sessionDurationMs: session?.activeDurationMs,
+          sessionDistanceMillimeters: session?.distanceMillimeters,
+          hederaAccount: user.hederaAccount,
+        },
       },
-      { pinataJwt: process.env.PINATA_JWT },
+      { pinataJwt: jwt },
     );
     cid = pin.cid;
   } catch {
@@ -542,11 +584,10 @@ async function mintRunCertificate(user: StakeUser, market: { id: string; distanc
   const client = makeClient(hedera);
   try {
     const cert = await mintCertificate(client, hedera, hedera.certificateTokenId, {
-      scanId: `${market.id}:${user.id}`,
       target: market.label,
-      verdict: "ALLOW",
       score: result?.timeMs ?? 0,
       reportCid: cid,
+      memo,
     });
     service.recordCertificate(user.id, market.id, cert.serial, cid, {
       tokenId: hedera.certificateTokenId,

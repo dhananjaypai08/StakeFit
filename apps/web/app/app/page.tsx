@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Action } from "../../components/Action";
-import { Breadcrumbs } from "../../components/Breadcrumbs";
 import { PageHero } from "../../components/PageHero";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -167,35 +166,21 @@ export default function AppPage() {
   const week = workouts.filter((row) => row.startMs >= Date.now() - 7 * 24 * 60 * 60_000);
   const weekMm = week.reduce((sum, row) => sum + row.distanceMillimeters, 0);
   const weekKcal = week.reduce((sum, row) => sum + (row.caloriesKcal ?? 0), 0);
+  const openMarkets = markets.filter((market) => market.status !== "resolved");
+  const featured = openMarkets[0];
 
   return (
     <main>
-      <PageHero
-        src={PHOTOS.hero}
-        alt="Runner wearing a Fitbit"
-        eyebrow={isAdmin ? "Admin" : "Today"}
-        title={
-          !sessionsReady || (fetching && !last)
-            ? "Fetching Fitbit…"
-            : last
-              ? `${formatActivityName(last.displayName, last.exerciseType)}. ${formatDistance(last.distanceMillimeters)}.`
-              : isAdmin
-                ? "Start a race"
-                : "No Fitbit sessions yet"
-        }
-      >
-        <p className="mt-4 max-w-xl text-base leading-7 text-white/90">
-          {!sessionsReady || (fetching && !last)
-            ? "Pulling live walks and runs from Google Health."
-            : last
-              ? `${new Date(last.startMs).toLocaleString()} · ${formatDuration(last.activeDurationMs)}${
-                  last.heartRateBpm ? ` · ${Math.round(last.heartRateBpm)} bpm` : ""
-                }`
-              : "After the phone syncs, we pull Fitbit on our own."}
+      <PageHero src={PHOTOS.start} alt="" focus="50% 62%" eyebrow={isAdmin ? "Admin" : "Races"} title={featured ? featured.label : "No race open"}>
+        <p className="mt-3 max-w-xl text-sm leading-6 text-white/80">
+          {featured
+            ? openMarkets.length === 1
+              ? `Open today. Fastest pace over ${featured.label} takes the pot.`
+              : `${openMarkets.length} races open. Pick one and pay to enter.`
+            : isAdmin
+              ? "Create a distance for today when you want people to race."
+              : "Come back when a race is open."}
         </p>
-        <div className="mt-6">
-          <Breadcrumbs items={[{ href: "/", label: "Home" }, { label: "Races" }]} />
-        </div>
       </PageHero>
 
       {listed.length ? (
@@ -327,9 +312,9 @@ export default function AppPage() {
       <section className="page-x w-full pb-8">
         <div className="grid items-center gap-6 overflow-hidden rounded-xl border border-white/[0.08] bg-ink-900 md:grid-cols-[minmax(0,16rem)_1fr]">
           <img
-            src={PHOTOS.track}
-            alt="Athlete in starting position on a running track"
-            className="h-44 w-full bg-ink-900 object-cover md:h-full md:min-h-[12rem]"
+            src={PHOTOS.start}
+            alt=""
+            className="h-44 w-full bg-ink-900 object-cover object-[50%_62%] md:h-full md:min-h-[12rem]"
           />
           <div className="px-5 py-5 md:pr-7">
             <p className="text-xs uppercase tracking-[0.16em] text-white/70">The rule</p>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { api } from "../lib/api";
+import { Action } from "./Action";
 
 interface RpContext {
   rp_id: string;
@@ -76,16 +77,13 @@ export function SelfieCheck({
     }
   }
 
+  if (verified) return null;
+
   return (
-    <div>
-      <button className="mt-1.5 text-left" type="button" disabled={disabled || busy || verified} onClick={() => void openKit()}>
-        <h2 className="text-base font-medium text-white">
-          {verified ? "Selfie verified" : busy ? "Checking…" : "Selfie Check"}
-        </h2>
-        <p className="mt-1.5 text-sm leading-6 text-white/85">
-          World confirms a live person before the run ID mints. Used for fairness, not identity.
-        </p>
-      </button>
+    <div className="mt-4">
+      <Action className="h-11 min-w-[10rem] px-5" disabled={disabled || busy} onClick={() => void openKit()}>
+        {busy ? "Opening World…" : "Open Selfie Check"}
+      </Action>
       {error ? <p className="mt-2 text-xs text-red-200">{error}</p> : null}
     </div>
   );

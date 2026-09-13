@@ -31,5 +31,5 @@ test("CRE ingest emits only the best qualifying time", () => {
   });
   assert.equal(result.ok, true);
   assert.equal(result.exerciseId, "win");
-  assert.equal(result.timeMs, 1800);
+  assert.equal(result.timeMs, 1500);
 });

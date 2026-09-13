@@ -66,8 +66,8 @@ test("enter scores an already-synced session without another sync click", async 
   ];
   service.enter(market.id, user.id, "0.0.1234", "skipped");
   const mine = service.publicView(market, user.id);
-  assert.equal(mine.yours?.timeMs, 18_000);
-  assert.equal(mine.results[0]?.timeMs, 18_000);
+  assert.equal(mine.yours?.timeMs, 11_250);
+  assert.equal(mine.results[0]?.timeMs, 11_250);
 });
 
 test("opening a race refreshes a stale Fitbit pull", async () => {
@@ -135,7 +135,7 @@ test("open UTC-stored race scores only today in Kolkata", async () => {
   service.enter(market.id, user.id, "0.0.1234", "skipped");
   const mine = service.publicView(market, user.id, "Asia/Kolkata", now);
   assert.equal(mine.yours?.exerciseId, "today-ist");
-  assert.equal(mine.yours?.timeMs, 15_000);
+  assert.equal(mine.yours?.timeMs, 9_375);
 });
 
 test("createMarket with Kolkata after UTC midnight is today in IST", async () => {

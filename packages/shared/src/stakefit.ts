@@ -186,6 +186,23 @@ export interface QualifyingResult {
   exerciseId?: string;
 }
 
+/** Time for `catalogMillimeters` at this session's average pace, not the full workout. */
+export function scoreDistanceTimeMs(
+  session: {
+    activeDurationMs: number;
+    distanceMillimeters: number;
+    averagePaceSecondsPerMeter?: number;
+  },
+  catalogMillimeters: number,
+): number {
+  if (session.activeDurationMs <= 0 || catalogMillimeters <= 0) return 0;
+  if (session.distanceMillimeters < catalogMillimeters) return 0;
+  if (session.averagePaceSecondsPerMeter && session.averagePaceSecondsPerMeter > 0) {
+    return Math.max(1, Math.round(session.averagePaceSecondsPerMeter * catalogMillimeters));
+  }
+  return Math.max(1, Math.round((session.activeDurationMs * catalogMillimeters) / session.distanceMillimeters));
+}
+
 export interface HistoryRow extends ExerciseSession {
   qualifiedMarkets: Array<{
     marketId: string;

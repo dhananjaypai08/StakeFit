@@ -25,10 +25,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-ink-950">
-      <header className="absolute left-0 right-0 top-0 z-20">
-        <div className="page-x flex h-16 w-full items-center justify-between">
+      <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-ink-950/92 backdrop-blur-md">
+        <div className="page-x flex h-14 w-full items-center justify-between">
           <div className="flex items-center gap-6">
-            <Link href="/" className="text-[13px] font-semibold tracking-tight text-white">
+            <Link href="/" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-white">
+              <img src="/logo.png" alt="" className="h-7 w-7 rounded-md" />
               StakeFit
             </Link>
             {user?.connected ? (
