@@ -4,9 +4,9 @@
 
 <h1 align="center">StakeFit</h1>
 
-<p align="center">Daily Fitbit distance races. Enter in HBAR. Top three take the pot.</p>
+<p align="center">Daily Fitbit distance races. Enter in HBAR. Fastest pace takes the pot.</p>
 
-You pick a distance and pay to enter. We score a session you already logged and hide other times until the day closes. After a 10% house cut, the top three split the pot 50 / 30 / 20.
+You pick a distance and pay to enter. We score a session you already logged and hide other times until the day closes. Top three split the pot 50 / 30 / 20.
 
 Live at [stakefit-ethglobal.vercel.app](https://stakefit-ethglobal.vercel.app).
 
@@ -17,7 +17,7 @@ Live at [stakefit-ethglobal.vercel.app](https://stakefit-ethglobal.vercel.app).
 3. Cover the race distance today.
 4. After resolve: selfie, claim HBAR, mint a run card.
 
-Score is pace over the catalog distance, not the full session. First, second, and third take 50%, 30%, and 20% of the remaining pot.
+Score is pace over the catalog distance, not the full session.
 
 ## Architecture
 

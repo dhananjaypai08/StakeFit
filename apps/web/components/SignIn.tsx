@@ -24,7 +24,7 @@ export function SignIn() {
             Connect Fitbit to race
           </h1>
           <p className="mt-3 text-base text-white/90">
-            Google Health reads the sessions already on your phone. Top three split the pot 50 / 30 / 20.
+            Google Health reads the sessions already on your phone.
           </p>
           {blocked ? (
             <div className="mt-6 rounded-lg border border-amber-200/30 bg-amber-950/40 p-3 text-sm text-amber-50">
