@@ -57,7 +57,6 @@ flowchart LR
 | Piece | Role |
 | --- | --- |
 | Hedera | x402 entry, HCS trail, HTS run card, HBAR payouts |
-| Sepolia | Race ledger |
 | Chainlink CRE | Score leaves as time only |
 | World | Live person before claim or mint |
 
