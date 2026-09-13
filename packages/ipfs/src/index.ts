@@ -170,7 +170,7 @@ export async function pinBytes(
   const jwt = config.pinataJwt?.trim();
   if (!jwt) throw new Error("PINATA_JWT is required to pin");
   const form = new FormData();
-  form.append("file", new Blob([bytes], { type: contentType }), filename);
+  form.append("file", new Blob([new Uint8Array(bytes)], { type: contentType }), filename);
   form.append("pinataMetadata", JSON.stringify({ name: filename }));
   const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
     method: "POST",

@@ -30,8 +30,8 @@ export async function transferTinybars(
   fromAccount: string,
   toAccount: string,
   tinybars: number,
-): Promise<void> {
-  if (tinybars <= 0) return;
+): Promise<string | undefined> {
+  if (tinybars <= 0) return undefined;
   const client = makeClient(config);
   try {
     const tx = await new TransferTransaction()
@@ -39,6 +39,7 @@ export async function transferTinybars(
       .addHbarTransfer(AccountId.fromString(toAccount), Hbar.fromTinybars(tinybars))
       .execute(client);
     await tx.getReceipt(client);
+    return tx.transactionId.toString();
   } finally {
     client.close();
   }

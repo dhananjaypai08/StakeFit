@@ -62,7 +62,7 @@ export async function mintCertificate(
   const pointer = (
     metadata.reportCid
       ? `ipfs://${metadata.reportCid}`
-      : metadata.memo || `StakeFit ${metadata.target ?? "run"} ${metadata.score ?? ""}`.trim()
+      : metadata.memo || `StakeFit · ${metadata.target ?? "run card"}`
   ).slice(0, 100);
   const tx = await new TokenMintTransaction()
     .setTokenId(tokenId)

@@ -878,11 +878,11 @@ export class StakeFitService {
   async claimPayout(marketId: string, userId: string, hederaAccount: string): Promise<PayoutRecord> {
     const market = this.getMarket(marketId);
     if (!market) throw new Error("market not found");
-    if (market.status !== "resolved") throw new Error("race is still open");
+    if (market.status !== "resolved") throw new Error("this race has not resolved yet");
     const list = this.payouts.get(marketId) ?? [];
     const payout = list.find((row) => this.sameRunner(row.userId, userId));
-    if (!payout) throw new Error("you did not place in the top 3");
-    if (!hederaAccount) throw new Error("connect HashPack first");
+    if (!payout) throw new Error("no prize is held for your account on this race");
+    if (!hederaAccount) throw new Error("connect HashPack, then claim again");
     this.setHederaAccount(userId, hederaAccount);
     payout.hederaAccount = hederaAccount;
     if (!payout.paidAt && payout.tinybars > 0) {
@@ -914,7 +914,7 @@ export class StakeFitService {
     return ethers.getAddress(`0x${ethers.id(userId).slice(26)}`);
   }
 
-  private sameRunner(stored: string, userId: string): boolean {
+  sameRunner(stored: string, userId: string): boolean {
     if (stored === userId) return true;
     try {
       return this.evmUser(stored).toLowerCase() === this.evmUser(userId).toLowerCase();
@@ -1403,10 +1403,24 @@ export class StakeFitService {
     const { loadHederaConfig, hasHederaCredentials, transferTinybars } = await import("@stakefit/hedera");
     const hedera = loadHederaConfig();
     if (!hasHederaCredentials(hedera) || !this.config.payToAccount) return "local";
-    await transferTinybars(hedera, this.config.payToAccount, payout.hederaAccount, payout.tinybars);
-    return `hbar:${payout.hederaAccount}:${payout.tinybars}`;
+    try {
+      const txId = await transferTinybars(hedera, this.config.payToAccount, payout.hederaAccount, payout.tinybars);
+      return txId ?? `hbar:${payout.hederaAccount}:${payout.tinybars}`;
+    } catch (err) {
+      throw new Error(`payout to ${payout.hederaAccount} failed: ${payoutHint(err)}`);
+    }
   }
 
+}
+
+/** Turn a Hedera SDK error into something a runner can act on. */
+function payoutHint(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/INSUFFICIENT_(PAYER_|ACCOUNT_)?BALANCE/i.test(raw)) return "the prize account is out of testnet HBAR, ask the host to top it up";
+  if (/INVALID_ACCOUNT_ID|ACCOUNT_DELETED/i.test(raw)) return "that Hedera account id is not valid, reconnect HashPack";
+  if (/ACCOUNT_ID_DOES_NOT_EXIST/i.test(raw)) return "that Hedera account does not exist on this network, switch HashPack to testnet";
+  if (/timed out|timeout|ETIMEDOUT|ECONNRESET/i.test(raw)) return "the Hedera network did not answer in time, try again";
+  return raw;
 }
 
 /** Same clock the UI shows: `18s` or `1:12`. */

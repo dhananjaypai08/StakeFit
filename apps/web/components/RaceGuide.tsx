@@ -5,7 +5,10 @@ export interface GuideStep {
   title: string;
   body?: string;
   state: "done" | "active" | "locked";
-  action?: { label: string; busy?: boolean; onClick: () => void };
+  /** `busyLabel` names the stage in flight so the runner knows something is happening. */
+  action?: { label: string; busy?: boolean; busyLabel?: string; onClick: () => void };
+  /** Shown inside the step, next to the button that failed. */
+  error?: string;
   extra?: ReactNode;
 }
 
@@ -40,10 +43,27 @@ export function RaceGuide({ steps }: { steps: GuideStep[] }) {
             {step.extra}
             {step.action && active ? (
               <div className="mt-3">
-                <Action className="h-10 px-4" disabled={step.action.busy} onClick={step.action.onClick}>
-                  {step.action.busy ? "Working…" : step.action.label}
+                <Action
+                  className="h-10 gap-2 px-4"
+                  aria-busy={step.action.busy ? true : undefined}
+                  disabled={step.action.busy}
+                  onClick={step.action.onClick}
+                >
+                  {step.action.busy ? (
+                    <>
+                      <span className="spinner" aria-hidden />
+                      {step.action.busyLabel || "Working"}…
+                    </>
+                  ) : (
+                    step.action.label
+                  )}
                 </Action>
               </div>
+            ) : null}
+            {step.error && !step.action?.busy ? (
+              <p className="mt-3 rounded-lg border border-red-400/25 bg-red-400/[0.07] px-3 py-2 text-sm leading-6 text-red-100">
+                {step.error}
+              </p>
             ) : null}
           </li>
         );

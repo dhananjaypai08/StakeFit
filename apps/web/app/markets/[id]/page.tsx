@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Action } from "../../../components/Action";
 import { PageHero } from "../../../components/PageHero";
 import { PageSkeleton } from "../../../components/PageSkeleton";
@@ -58,6 +58,12 @@ export default function MarketPage() {
   const [view, setView] = useState<View | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  const [stage, setStage] = useState("");
+  /** Action failures stay pinned to their own step until the runner retries. */
+  const [failure, setFailure] = useState<{ step: string; message: string } | null>(null);
+  /** Polling must not overwrite the view or the error while an action is in flight. */
+  const busyRef = useRef("");
+  busyRef.current = busy;
 
   async function load() {
     const body = await api<View>(`/markets/${params.id}`);
@@ -68,6 +74,7 @@ export default function MarketPage() {
     if (!user?.connected) return;
     let cancelled = false;
     const tick = async () => {
+      if (busyRef.current) return;
       try {
         const body = await api<View>(`/markets/${params.id}`);
         if (!cancelled) {
@@ -86,19 +93,33 @@ export default function MarketPage() {
     };
   }, [params.id, user?.id, user?.connected]);
 
-  async function enter() {
-    setBusy("enter");
+  function start(step: string) {
+    setBusy(step);
+    setStage("");
     setError("");
+    setFailure(null);
+  }
+
+  function fail(step: string, err: unknown) {
+    setFailure({ step, message: friendlyError(err) });
+  }
+
+  async function enter() {
+    start("enter");
     try {
+      setStage("Opening HashPack");
       const hederaAccount = await connectWallet();
       await api("/me/hedera", { method: "POST", body: JSON.stringify({ accountId: hederaAccount }) });
+      setStage("Paying the entry");
       try {
         await api(`/markets/${params.id}/enter`, { method: "POST", body: JSON.stringify({ hederaAccount }) });
       } catch (err) {
         const status = (err as Error & { status?: number; body?: { accepts?: InvoiceRequirements[] } }).status;
         const accepts = (err as Error & { body?: { accepts?: InvoiceRequirements[] } }).body?.accepts;
         if (status !== 402 || !accepts?.[0]) throw err;
+        setStage("Approve in HashPack");
         const signed = await signScanPayment(accepts[0], hederaAccount);
+        setStage("Settling on Hedera");
         await api(`/markets/${params.id}/enter`, {
           method: "POST",
           headers: { "X-PAYMENT": encodeXPaymentHeader(accepts[0], signed) },
@@ -108,54 +129,61 @@ export default function MarketPage() {
       await refresh();
       await load();
     } catch (err) {
-      setError((err as Error).message);
+      fail("enter", err);
     } finally {
       setBusy("");
+      setStage("");
     }
   }
 
   async function resolveHeat() {
-    setBusy("resolve");
-    setError("");
+    start("resolve");
     try {
+      setStage("Scoring the board");
       await api(`/markets/${params.id}/resolve`, { method: "POST" });
       await load();
     } catch (err) {
-      setError((err as Error).message);
+      fail("resolve", err);
     } finally {
       setBusy("");
+      setStage("");
     }
   }
 
   async function claimPayout() {
-    setBusy("claim");
-    setError("");
+    start("claim");
     try {
+      setStage("Opening HashPack");
       const hederaAccount = await connectWallet({ prompt: true });
+      setStage("Linking your account");
       await api("/me/hedera", { method: "POST", body: JSON.stringify({ accountId: hederaAccount }) });
+      setStage("Sending your HBAR");
       await api(`/markets/${params.id}/claim`, { method: "POST", body: JSON.stringify({ hederaAccount }) });
+      setStage("Confirming on Hedera");
       await refresh();
       await load();
     } catch (err) {
-      setError((err as Error).message);
+      fail("claim", err);
     } finally {
       setBusy("");
+      setStage("");
     }
   }
 
   async function mint() {
-    setBusy("mint");
-    setError("");
+    start("mint");
     try {
       if (view?.partners?.world?.selfieRequired && !view.partners.world.verified && !user?.worldVerified) {
-        throw new Error("Complete Selfie Check first.");
+        throw new Error("Finish Selfie Check first, then mint.");
       }
+      setStage("Minting on Hedera");
       await api(`/markets/${params.id}/certificate`, { method: "POST" });
       await load();
     } catch (err) {
-      setError((err as Error).message);
+      fail("mint", err);
     } finally {
       setBusy("");
+      setStage("");
     }
   }
 
@@ -169,7 +197,15 @@ export default function MarketPage() {
       title: "Pay to enter",
       body: view.entered ? `Paid ${formatTinybars(view.entryTinybars)}.` : `Pay ${formatTinybars(view.entryTinybars)} with HashPack.`,
       state: view.entered ? "done" : "active",
-      action: view.entered ? undefined : { label: "Open HashPack", busy: busy === "enter", onClick: () => void enter() },
+      action: view.entered
+        ? undefined
+        : {
+            label: failure?.step === "enter" ? "Try again" : "Open HashPack",
+            busy: busy === "enter",
+            busyLabel: stage,
+            onClick: () => void enter(),
+          },
+      error: failure?.step === "enter" ? failure.message : undefined,
     },
     {
       title: "Fitbit time",
@@ -187,8 +223,14 @@ export default function MarketPage() {
       title: canResolve ? "Resolve" : "Waiting to resolve",
       state: !view.entered ? "locked" : canResolve ? "active" : "locked",
       action: canResolve
-        ? { label: "Resolve race", busy: busy === "resolve", onClick: () => void resolveHeat() }
+        ? {
+            label: failure?.step === "resolve" ? "Try resolve again" : "Resolve race",
+            busy: busy === "resolve",
+            busyLabel: stage,
+            onClick: () => void resolveHeat(),
+          }
         : undefined,
+      error: failure?.step === "resolve" ? failure.message : undefined,
     },
   ];
 
@@ -216,26 +258,50 @@ export default function MarketPage() {
     ...(view.claim
       ? [
           {
-            title: "Claim HBAR",
+            title: view.claim.paid ? "HBAR sent" : "Claim your HBAR",
             body: view.claim.paid
-              ? `Sent ${formatTinybars(view.claim.tinybars)}.`
-              : `P${view.claim.rank} · ${formatTinybars(view.claim.tinybars)}`,
+              ? `${formatTinybars(view.claim.tinybars)} for ${ordinal(view.claim.rank)} place went to ${view.claim.hederaAccount ?? "your account"}.`
+              : `You finished ${ordinal(view.claim.rank)}. ${formatTinybars(view.claim.tinybars)} is held for you. One HashPack approval moves it to your account.`,
             state: !selfieDone && selfieNeeded ? "locked" : view.claim.paid ? "done" : "active",
             action:
               view.claim.paid || (!selfieDone && selfieNeeded)
                 ? undefined
-                : { label: "Open HashPack and claim", busy: busy === "claim", onClick: () => void claimPayout() },
+                : {
+                    label: failure?.step === "claim" ? "Try claim again" : "Claim with HashPack",
+                    busy: busy === "claim",
+                    busyLabel: stage,
+                    onClick: () => void claimPayout(),
+                  },
+            error: failure?.step === "claim" ? failure.message : undefined,
+            extra: transferLink(view.claim.txId) ? (
+              <a
+                className="mt-2 inline-block text-xs text-white/60 underline-offset-2 hover:underline"
+                href={transferLink(view.claim.txId)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                View the transfer on HashScan
+              </a>
+            ) : null,
           } satisfies GuideStep,
         ]
       : []),
     {
       title: "Mint run card",
-      body: view.certificate ? `Serial ${view.certificate.serial}` : "A soulbound NFT for this time.",
+      body: view.certificate
+        ? `Soulbound run card, serial ${view.certificate.serial}. It stays in your account.`
+        : "A soulbound run card on Hedera as the receipt for this time.",
       state: !selfieDone && selfieNeeded ? "locked" : view.certificate ? "done" : "active",
       action:
         view.certificate || (!selfieDone && selfieNeeded)
           ? undefined
-          : { label: "Mint run card", busy: busy === "mint", onClick: () => void mint() },
+          : {
+              label: failure?.step === "mint" ? "Try mint again" : "Mint run card",
+              busy: busy === "mint",
+              busyLabel: stage,
+              onClick: () => void mint(),
+            },
+      error: failure?.step === "mint" ? failure.message : undefined,
       extra: view.certificate?.hashscan ? (
         <a className="mt-2 inline-block text-xs text-white/60 underline-offset-2 hover:underline" href={view.certificate.hashscan} target="_blank" rel="noreferrer">
           Open on HashScan
@@ -272,8 +338,18 @@ export default function MarketPage() {
         {view.status === "resolved" ? (
           <>
             <Podium winners={view.winners ?? []} viewerId={user.id} payouts={view.payouts} />
-            {view.entered && !view.claim && !view.noWinner ? (
-              <p className="text-sm text-zinc-500">You entered. You did not place. You can still mint a run card.</p>
+            {view.claim && !view.claim.paid ? (
+              <p className="text-sm text-zinc-400">
+                Board is final. Claim your {formatTinybars(view.claim.tinybars)} below, then mint the run card.
+              </p>
+            ) : null}
+            {!view.claim && onPodium(view, user) ? (
+              <p className="text-sm text-amber-100/80">
+                You are on the podium and your prize is still being read back from Hedera. This page refreshes on its own.
+              </p>
+            ) : null}
+            {view.entered && !view.claim && !view.noWinner && !onPodium(view, user) ? (
+              <p className="text-sm text-zinc-500">You entered and did not place. You can still mint the run card for your time.</p>
             ) : null}
             <div className="grid items-stretch gap-3 lg:grid-cols-2">
               <div className="min-h-[16rem]">
@@ -317,6 +393,39 @@ export default function MarketPage() {
       </section>
     </main>
   );
+}
+
+function onPodium(view: View, user: { id: string; hederaAccount?: string }): boolean {
+  return (view.winners ?? []).some(
+    (row) =>
+      row.userId === user.id ||
+      row.userId.toLowerCase() === user.id.toLowerCase() ||
+      Boolean(user.hederaAccount && row.hederaAccount === user.hederaAccount),
+  );
+}
+
+function ordinal(rank: number): string {
+  if (rank === 1) return "first";
+  if (rank === 2) return "second";
+  if (rank === 3) return "third";
+  return `${rank}th`;
+}
+
+/** Hedera tx ids look like `0.0.4759032@1789309219.442432286`. */
+function transferLink(txId?: string): string | undefined {
+  if (!txId || !txId.includes("@")) return undefined;
+  return `https://hashscan.io/testnet/transaction/${txId}`;
+}
+
+/** Wallet and network errors arrive raw, so give the runner something to act on. */
+function friendlyError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/reject|denied|cancel/i.test(raw)) return "HashPack closed before approving. Nothing moved, so you can claim again.";
+  if (/no wallet|not installed|extension/i.test(raw)) return "No HashPack found in this browser. Install it, then claim again.";
+  if (/session|expired|unauthor/i.test(raw)) return "Your session expired. Reload the page and sign in again.";
+  if (/failed to fetch|network|econnrefused/i.test(raw)) return "Could not reach StakeFit. Check your connection and try again.";
+  if (!raw.trim()) return "That did not go through. Try again.";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
 function scoreNote(view: View): string {

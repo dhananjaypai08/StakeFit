@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import type { DistanceId } from "@stakefit/shared";
+import { catalogById, type DistanceId } from "@stakefit/shared";
 import { buildAccepts, settlePayment } from "./x402gate";
 import type { OrchestratorConfig } from "./config";
 import { parseCookies, sessionCookie, signSession, verifySession } from "./sessionAuth";
@@ -515,7 +515,47 @@ function compactDuration(ms?: number): string {
   return min === 0 ? `${sec}s` : `${min}:${String(sec % 60).padStart(2, "0")}`;
 }
 
-async function mintRunCertificate(user: StakeUser, market: { id: string; distanceId: string; label: string }, service: StakeFitService) {
+function placeLabel(rank?: number): string | undefined {
+  if (rank === 1) return "1st";
+  if (rank === 2) return "2nd";
+  if (rank === 3) return "3rd";
+  return undefined;
+}
+
+function distanceLabel(meters?: number): string | undefined {
+  if (!meters) return undefined;
+  return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${meters} m`;
+}
+
+/** Minutes per kilometre, the number runners actually compare. */
+function paceLabel(timeMs?: number, meters?: number): string | undefined {
+  if (!timeMs || !meters) return undefined;
+  const secPerKm = Math.round(timeMs / 1000 / (meters / 1000));
+  if (!Number.isFinite(secPerKm) || secPerKm <= 0) return undefined;
+  return `${Math.floor(secPerKm / 60)}:${String(secPerKm % 60).padStart(2, "0")} /km`;
+}
+
+/** Walk up from the process cwd so the art resolves from any workspace root. */
+function findAsset(relativePaths: string[], existsSync: (p: string) => boolean, join: (...p: string[]) => string): string | undefined {
+  let dir = process.cwd();
+  for (let depth = 0; depth < 5; depth += 1) {
+    for (const rel of relativePaths) {
+      const candidate = join(dir, rel);
+      if (existsSync(candidate)) return candidate;
+    }
+    dir = join(dir, "..");
+  }
+  return undefined;
+}
+
+/** The run art is identical for every card, so pin it once per process. */
+let runArtCid: string | undefined;
+
+async function mintRunCertificate(
+  user: StakeUser,
+  market: { id: string; distanceId: string; label: string; winners?: Array<{ userId: string; rank: 1 | 2 | 3 }> },
+  service: StakeFitService,
+) {
   const { mintCertificate, hasHederaCredentials, loadHederaConfig, makeClient } = await import("@stakefit/hedera");
   const { pinJson, pinBytes } = await import("@stakefit/ipfs");
   const { readFile } = await import("node:fs/promises");
@@ -529,56 +569,78 @@ async function mintRunCertificate(user: StakeUser, market: { id: string; distanc
   }
   const result = service.getResult(market.id, user.id);
   const session = user.exercises.find((row) => row.id === result?.exerciseId);
-  const when = session?.startMs ? new Date(session.startMs).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const startMs = session?.startMs ?? Date.now();
+  const isoDay = new Date(startMs).toISOString().slice(0, 10);
+  const humanDay = new Date(startMs).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const timeLabel = compactDuration(result?.timeMs);
   const sourceMeters = session ? Math.round(session.distanceMillimeters / 1000) : undefined;
-  const memo = `StakeFit ${market.label} ${timeLabel} ${when} ${user.hederaAccount ?? ""}`
-    .replace(/\s+/g, " ")
-    .trim()
+  const raceMeters = catalogById(market.distanceId)?.meters;
+  const place = placeLabel(market.winners?.find((row) => service.sameRunner(row.userId, user.id))?.rank);
+  const memo = ["StakeFit", `${market.label} in ${timeLabel}`, place && `${place} place`, humanDay]
+    .filter(Boolean)
+    .join(" · ")
     .slice(0, 100);
   let cid: string | undefined;
   try {
     const jwt = process.env.PINATA_JWT;
-    const art = [
-      path.join(process.cwd(), "apps/orchestrator/assets/run-nft.png"),
-      path.join(process.cwd(), "apps/web/public/nft.png"),
-    ].find((file) => existsSync(file));
-    let image = "ipfs://";
-    if (jwt && art) {
+    if (!jwt) throw new Error("PINATA_JWT is not set");
+    const art = findAsset(["apps/orchestrator/assets/run-nft.png", "apps/web/public/nft.png", "assets/run-nft.png"], existsSync, path.join);
+    if (!runArtCid && art) {
       const pinned = await pinBytes(await readFile(art), "stakefit-run.png", "image/png", { pinataJwt: jwt });
-      image = `ipfs://${pinned.cid}`;
+      runArtCid = pinned.cid;
     }
+    const image = runArtCid ? `ipfs://${runArtCid}` : undefined;
+    if (!image) throw new Error("run art not found next to the orchestrator");
     const pin = await pinJson(
       {
-        name: `StakeFit · ${market.label}`,
+        name: `StakeFit ${market.label}${place ? ` · ${place}` : ""}`,
         creator: "StakeFit",
-        description: sourceMeters
-          ? `${market.label} from a ${sourceMeters} m Fitbit run on ${when}. Time ${timeLabel}.`
-          : `${market.label} run on ${when}. Time ${timeLabel}.`,
+        creatorDID: `hedera:${hedera.network}:${hedera.accountId}`,
+        description: [
+          `Soulbound run card for the StakeFit ${market.label} race on ${humanDay}.`,
+          `Scored at ${timeLabel} from a qualifying Fitbit session read through Google Health.`,
+          sourceMeters ? `Source session covered ${distanceLabel(sourceMeters)}.` : undefined,
+          place ? `Finished ${place} and took a share of the pot.` : undefined,
+          "Frozen on mint, so it stays with the runner who earned it.",
+        ]
+          .filter(Boolean)
+          .join(" "),
         image,
         type: "image/png",
+        format: "HIP412@2.0.0",
+        files: image ? [{ uri: image, type: "image/png", is_default_file: true }] : undefined,
         attributes: [
           { trait_type: "Race", value: market.label },
-          { trait_type: "Time", value: timeLabel },
-          ...(sourceMeters ? [{ trait_type: "Source run", value: `${sourceMeters} m` }] : []),
-          { trait_type: "Date", value: when },
-          { trait_type: "Account", value: user.hederaAccount ?? "" },
-          { trait_type: "Exercise", value: session?.displayName ?? "Run" },
+          { trait_type: "Race time", value: timeLabel },
+          ...(paceLabel(result?.timeMs, raceMeters) ? [{ trait_type: "Pace", value: paceLabel(result?.timeMs, raceMeters) }] : []),
+          ...(place ? [{ trait_type: "Place", value: place }] : []),
+          { trait_type: "Session", value: session?.displayName ?? "Run" },
+          ...(sourceMeters ? [{ trait_type: "Session distance", value: distanceLabel(sourceMeters) }] : []),
+          ...(session?.activeDurationMs ? [{ trait_type: "Session time", value: compactDuration(session.activeDurationMs) }] : []),
+          ...(session?.heartRateBpm ? [{ trait_type: "Average heart rate", value: `${session.heartRateBpm} bpm` }] : []),
+          { trait_type: "Date", value: isoDay },
+          { trait_type: "Source", value: "Fitbit via Google Health" },
+          { trait_type: "Verified by", value: user.worldNullifier === "world:skipped" ? "StakeFit" : "World Selfie Check" },
         ],
         properties: {
           marketId: market.id,
           distanceId: market.distanceId,
+          raceMeters,
           timeMs: result?.timeMs,
           exerciseId: result?.exerciseId,
+          sessionStartMs: session?.startMs,
           sessionDurationMs: session?.activeDurationMs,
           sessionDistanceMillimeters: session?.distanceMillimeters,
+          scoredBy: result?.scoredBy ?? "orchestrator",
           hederaAccount: user.hederaAccount,
+          hcsTopicId: process.env.HCS_AUDIT_TOPIC_ID,
         },
       },
       { pinataJwt: jwt },
     );
     cid = pin.cid;
-  } catch {
+  } catch (err) {
+    console.warn("run card metadata not pinned, falling back to memo:", err instanceof Error ? err.message : err);
     cid = undefined;
   }
   const client = makeClient(hedera);

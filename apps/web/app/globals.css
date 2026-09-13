@@ -55,6 +55,22 @@ body {
   }
 }
 
+.spinner {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border-radius: 999px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-top-color: currentColor;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .run-card {
   background:
     radial-gradient(120% 80% at 0% 0%, rgba(190, 242, 100, 0.16), transparent 55%),
@@ -98,6 +114,11 @@ a {
 .action:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.action[aria-busy="true"]:disabled {
+  opacity: 0.8;
+  cursor: progress;
 }
 
 .action-primary {
