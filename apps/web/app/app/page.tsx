@@ -157,17 +157,30 @@ export default function AppPage() {
 
   if (!user?.connected) return null;
 
+  const openMarkets = markets.filter((market) => market.status !== "resolved");
+  const featured = openMarkets[0];
+  const openIds = new Set(openMarkets.map((market) => market.id));
+
+  /** Open races this session qualifies for, one chip per race. */
+  function liveRaces(row: Workout) {
+    const byId = new Map<string, Workout["qualifiedMarkets"][number]>();
+    for (const market of row.qualifiedMarkets) {
+      if (openIds.has(market.marketId)) byId.set(market.marketId, market);
+    }
+    return [...byId.values()];
+  }
+
   const listed = [...workouts].sort((a, b) => {
-    const score = (row: Workout) =>
-      row.qualifiedMarkets.some((market) => market.submitted) ? 2 : row.qualifiedMarkets.some((market) => market.entered) ? 1 : 0;
+    const score = (row: Workout) => {
+      const live = liveRaces(row);
+      return live.some((market) => market.submitted) ? 2 : live.some((market) => market.entered) ? 1 : 0;
+    };
     return score(b) - score(a) || b.startMs - a.startMs;
   });
   const last = workouts[0];
   const week = workouts.filter((row) => row.startMs >= Date.now() - 7 * 24 * 60 * 60_000);
   const weekMm = week.reduce((sum, row) => sum + row.distanceMillimeters, 0);
   const weekKcal = week.reduce((sum, row) => sum + (row.caloriesKcal ?? 0), 0);
-  const openMarkets = markets.filter((market) => market.status !== "resolved");
-  const featured = openMarkets[0];
 
   return (
     <main>
@@ -379,24 +392,16 @@ export default function AppPage() {
                     </tr>
                   ))
                 : listed.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE).map((row) => {
-                  const counting = row.qualifiedMarkets.find((market) => market.submitted);
-                  const entered = row.qualifiedMarkets.find((market) => market.entered);
+                  const live = liveRaces(row);
+                  const counting = live.find((market) => market.submitted);
+                  const entered = live.find((market) => market.entered);
                   return (
                 <tr
                   key={row.id}
                   className={counting ? "bg-white/[0.07]" : entered ? "bg-white/[0.03]" : undefined}
                 >
                   <td className="px-4 py-3 text-zinc-400">{new Date(row.startMs).toLocaleString()}</td>
-                  <td className="px-4 py-3">
-                    <span className="flex flex-col gap-1">
-                      <span>{formatActivityName(row.displayName, row.exerciseType)}</span>
-                      {counting ? (
-                        <span className="w-fit rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-ink-950">
-                          On the {counting.label}
-                        </span>
-                      ) : null}
-                    </span>
-                  </td>
+                  <td className="px-4 py-3">{formatActivityName(row.displayName, row.exerciseType)}</td>
                   <td className="px-4 py-3 tabular-nums">{formatDistance(row.distanceMillimeters)}</td>
                   <td className="px-4 py-3 tabular-nums">
                     {row.caloriesKcal ? `${Math.round(row.caloriesKcal)}` : "—"}
@@ -406,15 +411,26 @@ export default function AppPage() {
                   </td>
                   <td className="px-4 py-3 tabular-nums">{formatDuration(row.activeDurationMs)}</td>
                   <td className="px-4 py-3 text-zinc-400">
-                    {row.qualifiedMarkets.length ? (
-                      <span className="flex flex-wrap gap-x-2 gap-y-1">
-                        {row.qualifiedMarkets.map((market) => (
+                    {live.length ? (
+                      <span className="flex flex-wrap gap-1.5">
+                        {live.map((market) => (
                           <Link
                             key={market.marketId}
-                            className={`underline-offset-2 hover:underline ${
-                              market.submitted ? "font-medium text-white" : "text-zinc-200"
-                            }`}
                             href={`/markets/${market.marketId}`}
+                            title={
+                              market.submitted
+                                ? `This session sets your ${market.label} time.`
+                                : market.entered
+                                  ? `You entered ${market.label}. A faster session can still replace this.`
+                                  : `Qualifies for ${market.label}. Pay to enter.`
+                            }
+                            className={`rounded-full px-2 py-0.5 text-[11px] ${
+                              market.submitted
+                                ? "bg-white font-medium text-ink-950"
+                                : market.entered
+                                  ? "border border-white/25 text-white"
+                                  : "border border-white/10 text-zinc-300"
+                            }`}
                           >
                             {market.label}
                             {market.submitted ? " · counting" : market.entered ? " · entered" : ""}
@@ -422,7 +438,7 @@ export default function AppPage() {
                         ))}
                       </span>
                     ) : (
-                      "—"
+                      <span title="No open race matches this session.">—</span>
                     )}
                   </td>
                 </tr>
