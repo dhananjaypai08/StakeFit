@@ -20,7 +20,7 @@ const roboto = Roboto({
 
 export const metadata: Metadata = {
   title: "StakeFit",
-  description: "Race a set distance. Fitbit time from Google Health. HBAR entry on Hedera.",
+  description: "Daily Fitbit races. Pay in HBAR. Fastest pace wins the pot.",
   icons: {
     icon: [
       { url: "/favicon.svg", type: "image/svg+xml" },

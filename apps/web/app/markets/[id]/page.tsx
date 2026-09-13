@@ -149,7 +149,7 @@ export default function MarketPage() {
     setError("");
     try {
       if (view?.partners?.world?.selfieRequired && !view.partners.world.verified && !user?.worldVerified) {
-        throw new Error("Complete Selfie Check first. It is the fairness check before a run ID mints.");
+        throw new Error("Complete Selfie Check first.");
       }
       await api(`/markets/${params.id}/certificate`, { method: "POST" });
       await load();
@@ -198,7 +198,7 @@ export default function MarketPage() {
       ? [
           {
             title: "Selfie Check",
-            body: selfieDone ? undefined : "Confirm a live person, then claim and mint.",
+            body: selfieDone ? undefined : "A live check before you claim.",
             state: selfieDone ? "done" : "active",
             extra: (
               <SelfieCheck
@@ -231,7 +231,7 @@ export default function MarketPage() {
       : []),
     {
       title: "Mint run card",
-      body: view.certificate ? `Serial ${view.certificate.serial}` : "Soulbound run NFT for this time.",
+      body: view.certificate ? `Serial ${view.certificate.serial}` : "A soulbound NFT for this time.",
       state: !selfieDone && selfieNeeded ? "locked" : view.certificate ? "done" : "active",
       action:
         view.certificate || (!selfieDone && selfieNeeded)
@@ -247,7 +247,7 @@ export default function MarketPage() {
 
   return (
     <main>
-      <PageHero src={PHOTOS.start} alt="" focus="50% 62%" eyebrow="Race" title={view.label}>
+      <PageHero src={PHOTOS.hero} alt="" focus="50% 58%" eyebrow={view.status === "resolved" ? "Resolved" : "Open"} title={view.label}>
         {view.yours?.timeMs != null ? (
           <>
             <p className="mt-3 text-4xl font-semibold tabular-nums tracking-tight text-white">

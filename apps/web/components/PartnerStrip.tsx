@@ -7,7 +7,6 @@ interface Partners {
 
 export function PartnerStrip({
   partners,
-  graphIntel,
   graphSource,
 }: {
   partners?: Partners;
@@ -18,33 +17,25 @@ export function PartnerStrip({
   const items = [
     {
       name: "Hedera",
-      detail: hedera?.payTo
-        ? `x402 HBAR to ${hedera.payTo}${hedera.hcsTopic ? " · HCS" : ""}${hedera.htsToken ? " · HTS run ID" : ""}`
-        : hedera?.x402
-          ? "x402 HBAR from HashPack"
-          : "Connect HashPack to pay",
+      detail: hedera?.x402 || hedera?.payTo ? "Entry and payout in HBAR" : "Pay from HashPack",
     },
     {
       name: "Chainlink",
-      detail: partners?.chainlink?.confidentialScore
-        ? `CRE holds Health tokens in the TEE. Only the time leaves${partners.chainlink.vrf ? " · VRF ties" : ""}`
-        : "CRE holds credentials in the TEE",
+      detail: "Time scored privately",
     },
     {
       name: "The Graph",
-      detail: graphIntel || (partners?.graph?.live ? "Live subgraph" : "Local board until Studio answers"),
+      detail: partners?.graph?.live ? "Race ledger index" : "Board from the live ledger",
     },
     {
       name: "World",
-      detail: partners?.world?.verified
-        ? "Selfie Check verified"
-        : "Selfie Check before the run card",
+      detail: partners?.world?.verified ? "Selfie verified" : "Selfie before you claim",
     },
   ];
 
   return (
     <section className="page-x w-full pb-8">
-      <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Partners on this race</p>
+      <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Partners</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((item) => (
           <div key={item.name} className="rounded-xl border border-white/[0.08] bg-ink-900 px-4 py-3">

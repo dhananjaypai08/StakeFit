@@ -171,7 +171,7 @@ export default function AppPage() {
 
   return (
     <main>
-      <PageHero src={PHOTOS.start} alt="" focus="50% 62%" eyebrow={isAdmin ? "Admin" : "Races"} title={featured ? featured.label : "No race open"}>
+      <PageHero src={PHOTOS.hero} alt="" focus="50% 58%" eyebrow={isAdmin ? "Admin" : "Races"} title={featured ? featured.label : "No race open"}>
         <p className="mt-3 max-w-xl text-sm leading-6 text-white/80">
           {featured
             ? openMarkets.length === 1
@@ -211,11 +211,10 @@ export default function AppPage() {
       <section className="page-x w-full space-y-6 pb-8">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-white/70">Daily</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/70">Today</p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">Races</h2>
             <p className="mt-2 max-w-lg text-sm leading-6 text-white/85">
-              One distance for the day. Fastest Fitbit time that started today and covered that distance. Resolved
-              races live on their own tab.
+              Times stay hidden until the race is resolved.
             </p>
             <div className="mt-4 flex gap-2">
               {(["open", "resolved"] as const).map((tab) => (
@@ -280,7 +279,7 @@ export default function AppPage() {
                       {new Date(market.startMs).toLocaleDateString()}
                       {new Date(market.startMs).toLocaleDateString() !== new Date(market.endMs).toLocaleDateString()
                         ? ` to ${new Date(market.endMs).toLocaleDateString()}`
-                        : " · fastest time that started today"}
+                        : " · fastest pace that started today"}
                     </p>
                   </div>
                   <span className="rounded-md bg-white/[0.06] px-2 py-0.5 text-xs text-zinc-300">
@@ -312,18 +311,17 @@ export default function AppPage() {
       <section className="page-x w-full pb-8">
         <div className="grid items-center gap-6 overflow-hidden rounded-xl border border-white/[0.08] bg-ink-900 md:grid-cols-[minmax(0,16rem)_1fr]">
           <img
-            src={PHOTOS.start}
+            src={PHOTOS.hero}
             alt=""
-            className="h-44 w-full bg-ink-900 object-cover object-[50%_62%] md:h-full md:min-h-[12rem]"
+            className="h-44 w-full bg-ink-900 object-cover object-[50%_58%] md:h-full md:min-h-[12rem]"
           />
           <div className="px-5 py-5 md:pr-7">
-            <p className="text-xs uppercase tracking-[0.16em] text-white/70">The rule</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-white/70">What counts</p>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-white md:text-2xl">
-              What the Race column means
+              Today’s session. Race pace.
             </h2>
             <p className="mt-3 max-w-md text-sm leading-6 text-white/85">
-              The race name appears only if the session started today and covered the race distance. A dash means it
-              was another day, or no race is open today.
+              Started today and covered the distance. Score is pace over that distance, not the full lap.
             </p>
           </div>
         </div>
@@ -333,7 +331,7 @@ export default function AppPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.16em] text-white/70">Fitbit</p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-tight">Your Fitbit sessions</h2>
+            <h2 className="mt-2 text-3xl font-semibold tracking-tight">Today’s sessions</h2>
             <p className="mt-2 flex items-center gap-2 text-sm text-white/70">
               {fetching ? <span className="live-dot" aria-hidden /> : null}
               {fetching
@@ -457,7 +455,7 @@ export default function AppPage() {
       <footer className="page-x w-full border-t border-white/[0.06] py-6 text-xs text-white/50">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p>StakeFit</p>
-          <p>Fitbit via Google Health API.</p>
+          <p>Fitbit via Google Health.</p>
         </div>
       </footer>
     </main>

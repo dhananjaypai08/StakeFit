@@ -29,7 +29,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="page-x flex h-14 w-full items-center justify-between">
           <div className="flex items-center gap-6">
             <Link href="/" className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-white">
-              <img src="/logo.png" alt="" className="h-7 w-7 rounded-md" />
+              <img src="/logo.png" alt="" className="h-6 w-6 rounded-md" />
               StakeFit
             </Link>
             {user?.connected ? (
