@@ -659,6 +659,7 @@ async function mintRunCertificate(
       type: "stakefit.certificate",
       marketId: market.id,
       userId: user.id,
+      tokenId: hedera.certificateTokenId,
       serial: cert.serial,
       cid,
       txId: cert.txId,

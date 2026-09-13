@@ -1197,6 +1197,8 @@ export class StakeFitService {
     if (type === "stakefit.certificate" && marketId && userId) {
       this.recordCertificate(userId, marketId, String(entry.serial ?? ""), entry.cid ? String(entry.cid) : undefined, {
         txId: entry.txId ? String(entry.txId) : undefined,
+        // Cards minted before a collection change keep the collection they were minted in.
+        tokenId: entry.tokenId ? String(entry.tokenId) : undefined,
       });
     }
     if (type === "stakefit.resolve" && marketId) {
