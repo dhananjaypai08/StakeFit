@@ -23,14 +23,35 @@ Score is pace over the catalog distance, not the full session.
 
 ```mermaid
 flowchart LR
-  Fitbit --> Health[Google Health]
-  Health --> Orch[Orchestrator]
-  HashPack --> Pay[x402]
-  Pay --> Hedera[Hedera pot]
-  Orch --> Sepolia[StakeFitMarket]
-  Orch --> CRE[CRE time]
-  Orch --> HCS[HCS trail]
-  World[World selfie] --> HTS[HTS run NFT]
+  subgraph you[You]
+    Fitbit[Fitbit session]
+    Wallet[HashPack]
+    Selfie[Selfie Check]
+  end
+
+  subgraph stakefit[StakeFit]
+    Health[Google Health]
+    Orch[Orchestrator]
+    CRE[Chainlink CRE]
+  end
+
+  subgraph chain[Onchain]
+    Market[onchain Market]
+    Pot[HBAR pot]
+    Trail[HCS trail]
+    Card[HTS run card]
+  end
+
+  Fitbit -->|"session"| Health
+  Health -->|"pace over the distance"| Orch
+  Wallet -->|"x402 entry"| Orch
+  Orch -->|"time only"| CRE
+  CRE -->|"score"| Market
+  Orch -->|"enter and resolve"| Market
+  Orch -->|"payout"| Pot
+  Orch -->|"every step"| Trail
+  Selfie -->|"live person"| Orch
+  Orch -->|"mint"| Card
 ```
 
 | Piece | Role |
