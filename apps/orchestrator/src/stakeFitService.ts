@@ -472,12 +472,12 @@ export class StakeFitService {
     }
     const sessionM = Math.round(session.distanceMillimeters / 1000);
     const catalogM = Math.round(catalogMm / 1000);
-    const sessionSec = Math.max(1, Math.round(session.activeDurationMs / 1000));
-    const raceSec = Math.max(1, Math.round(timeMs / 1000));
+    const race = clockText(timeMs);
+    const full = clockText(session.activeDurationMs);
     if (session.distanceMillimeters > catalogMm * 1.15) {
-      return `${raceSec}s is ${distanceLabel} at the pace of your ${sessionM} m session (${sessionSec}s). Not the full lap.`;
+      return `${race} is ${distanceLabel} at the pace of that ${sessionM} m session. The session ran ${full}, so ${full} × ${catalogM} ÷ ${sessionM} = ${race}. The full session time is not the race time.`;
     }
-    return `${raceSec}s from your ${sessionM} m ${session.displayName || "session"}.`;
+    return `${race} is your ${sessionM} m ${session.displayName || "session"} timed over ${distanceLabel}.`;
   }
 
   private viewerQualify(
@@ -1407,6 +1407,14 @@ export class StakeFitService {
     return `hbar:${payout.hederaAccount}:${payout.tinybars}`;
   }
 
+}
+
+/** Same clock the UI shows: `18s` or `1:12`. */
+function clockText(ms: number): string {
+  const sec = Math.max(1, Math.round(ms / 1000));
+  const min = Math.floor(sec / 60);
+  const rem = sec % 60;
+  return min === 0 ? `${sec}s` : `${min}:${String(rem).padStart(2, "0")}`;
 }
 
 function mockSessions(markets: Market[]): ExerciseSession[] {

@@ -329,7 +329,7 @@ function scoreNote(view: View): string {
   if (yours.distanceMillimeters && yours.distanceMillimeters > 0 && ran && ran !== view.label.replace("metres", "m").replace("kilometres", "km")) {
     const longer = yours.distanceMillimeters > (catalogMeters(view.label) * 1000 * 1.15 || yours.distanceMillimeters);
     if (longer && full) {
-      return `From your ${ran} ${activity.toLowerCase()}${when ? ` at ${when}` : ""}. That run was ${full}; this is the same pace over ${view.label}.`;
+      return `From your ${ran} ${activity.toLowerCase()}${when ? ` at ${when}` : ""}. That session ran ${full}, and this is the same pace over ${view.label}. The full session time is not the race time.`;
     }
   }
   return `From your ${activity.toLowerCase()}${when ? ` at ${when}` : ""}.`;
