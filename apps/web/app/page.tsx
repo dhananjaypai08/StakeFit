@@ -15,7 +15,7 @@ const STEPS = [
   {
     n: "03",
     title: "Fastest pace wins",
-    body: "We score that distance at your session pace. Top three split the pot.",
+    body: "We score that distance at your session pace. Top three split the pot 50 / 30 / 20.",
   },
 ];
 
@@ -39,7 +39,7 @@ export default function HomePage() {
                 Win the pot.
               </h1>
               <p className="mt-4 text-base text-white/90">
-                Daily Fitbit races. Pay in HBAR. Fastest pace wins.
+                Daily Fitbit races. Pay in HBAR. Top three split the pot 50 / 30 / 20.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link className="action action-primary h-11 px-5" href="/app">
