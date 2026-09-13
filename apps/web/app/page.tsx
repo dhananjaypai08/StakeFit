@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PHOTOS } from "../lib/photos";
+import { HERO_FOCUS, PHOTOS } from "../lib/photos";
 
 const STEPS = [
   {
@@ -23,29 +23,32 @@ export default function HomePage() {
   return (
     <div className="w-full">
       <section className="relative w-full overflow-hidden">
-        <div className="relative h-[70vh] min-h-[22rem] w-full max-h-[36rem]">
+        <div className="relative h-[72vh] min-h-[24rem] w-full max-h-[42rem]">
           <img
             src={PHOTOS.hero}
             alt=""
-            className="absolute inset-0 h-full w-full object-cover object-[center_58%]"
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ objectPosition: HERO_FOCUS }}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/45 to-black/10" />
+          <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/30 to-transparent" />
           <div className="page-x relative flex h-full flex-col justify-end pb-10 pt-8">
-            <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight text-white md:text-6xl">
-              Race a distance.
-              <br />
-              Win the pot.
-            </h1>
-            <p className="mt-4 text-base text-white/90">
-              Daily Fitbit races. Pay in HBAR. Fastest pace wins.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <Link className="action action-primary h-11 px-5" href="/app">
-                See today’s races
-              </Link>
-              <a className="action action-quiet h-11 px-5" href="#how">
-                How it works
-              </a>
+            <div className="max-w-md">
+              <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight text-white md:text-6xl">
+                Race a distance.
+                <br />
+                Win the pot.
+              </h1>
+              <p className="mt-4 text-base text-white/90">
+                Daily Fitbit races. Pay in HBAR. Fastest pace wins.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link className="action action-primary h-11 px-5" href="/app">
+                  See today’s races
+                </Link>
+                <a className="action action-quiet h-11 px-5" href="#how">
+                  How it works
+                </a>
+              </div>
             </div>
           </div>
         </div>

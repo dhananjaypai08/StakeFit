@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { PHOTOS } from "../lib/photos";
+import { HERO_FOCUS, PHOTOS } from "../lib/photos";
 import { GoogleSignIn } from "./GoogleSignIn";
 
 export function SignIn() {
@@ -14,10 +14,12 @@ export function SignIn() {
       <img
         src={PHOTOS.hero}
         alt="Athlete in starting position on a running track"
-        className="absolute inset-0 h-full w-full object-cover object-[center_58%]"
+        className="absolute inset-0 h-full w-full object-cover"
+        style={{ objectPosition: HERO_FOCUS }}
       />
-      <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/60 to-black/25" />
+      <div className="absolute inset-0 bg-gradient-to-t from-ink-950 via-ink-950/35 to-transparent" />
       <div className="page-x relative flex min-h-[calc(100vh-3.5rem)] flex-col justify-end pb-12 pt-8">
+        <div className="max-w-md">
         <h1 className="text-4xl font-semibold leading-[1.1] tracking-tight text-white md:text-5xl">
           Connect Fitbit to race
         </h1>
@@ -31,6 +33,7 @@ export function SignIn() {
         ) : null}
         <div className="mt-8 max-w-sm">
           <GoogleSignIn href="/orch/auth/google" />
+        </div>
         </div>
       </div>
     </main>

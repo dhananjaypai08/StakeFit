@@ -247,7 +247,7 @@ export default function MarketPage() {
 
   return (
     <main>
-      <PageHero src={PHOTOS.hero} alt="" focus="50% 58%" eyebrow={view.status === "resolved" ? "Resolved" : "Open"} title={view.label}>
+      <PageHero src={PHOTOS.hero} alt="" eyebrow={view.status === "resolved" ? "Resolved" : "Open"} title={view.label}>
         {view.yours?.timeMs != null ? (
           <>
             <p className="mt-3 text-4xl font-semibold tabular-nums tracking-tight text-white">

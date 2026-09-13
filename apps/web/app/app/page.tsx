@@ -8,7 +8,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { formatActivityName, formatDistance, formatDuration, formatTinybars } from "../../lib/format";
 import { localDayBounds } from "@stakefit/shared";
-import { PHOTOS } from "../../lib/photos";
+import { HERO_FOCUS, PHOTOS } from "../../lib/photos";
 import { PartnerStrip } from "../../components/PartnerStrip";
 import { useViewMode } from "../../lib/viewMode";
 
@@ -171,7 +171,7 @@ export default function AppPage() {
 
   return (
     <main>
-      <PageHero src={PHOTOS.hero} alt="" focus="50% 58%" eyebrow={isAdmin ? "Admin" : "Races"} title={featured ? featured.label : "No race open"}>
+      <PageHero src={PHOTOS.hero} alt="" eyebrow={isAdmin ? "Admin" : "Races"} title={featured ? featured.label : "No race open"}>
         <p className="mt-3 max-w-xl text-sm leading-6 text-white/80">
           {featured
             ? openMarkets.length === 1
@@ -313,7 +313,8 @@ export default function AppPage() {
           <img
             src={PHOTOS.hero}
             alt=""
-            className="h-44 w-full bg-ink-900 object-cover object-[50%_58%] md:h-full md:min-h-[12rem]"
+            className="h-44 w-full bg-ink-900 object-cover md:h-full md:min-h-[12rem]"
+            style={{ objectPosition: HERO_FOCUS }}
           />
           <div className="px-5 py-5 md:pr-7">
             <p className="text-xs uppercase tracking-[0.16em] text-white/70">What counts</p>
